@@ -52,4 +52,14 @@ lazy val root = (project in file("."))
 
     Test / fork           := true,
     Compile / run / fork  := true,
+
+    // Silence runtime warnings:
+    //  - Cats Effect's "IOApp main is running on a thread other than the main thread"
+    //    (unavoidable under sbt's forked `run`, which names its main thread differently).
+    //  - JDK 24+ terminal-deprecation notice for `sun.misc.Unsafe::objectFieldOffset`
+    //    emitted by scala3-library's LazyVals; harmless until a future JDK actually removes it.
+    Compile / run / javaOptions ++= Seq(
+      "-Dcats.effect.warnOnNonMainThreadDetected=false",
+      "--sun-misc-unsafe-memory-access=allow",
+    ),
   )
