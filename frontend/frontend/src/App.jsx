@@ -1,53 +1,47 @@
-import { useRef, useState } from "react";
-import Editor from "@monaco-editor/react";
+import { useEffect, useState } from 'react'
+import CodeEditor from './CodeEditor.jsx'
+import DocumentList from './DocumentList.jsx'
 
-const LANGUAGES = ["javascript", "typescript", "python", "css", "html", "json"];
+/**
+ * Top-level shell.
+ *
+ * The app has two screens — a document list, and the editor for one document. We keep
+ * the user name in localStorage so reconnects after a tab refresh keep the same display
+ * name (the backend invents one when missing, but having a stable name across sessions
+ * is what users expect).
+ */
+export default function App() {
+  const [doc, setDoc]   = useState(null)
+  const [user, setUser] = useState(() => localStorage.getItem('lite-ide-user') ?? '')
 
-export default function CodeEditor() {
-    const editorRef = useRef(null);
-    const [language, setLanguage] = useState("python");
-    const [code, setCode] = useState(`def hello(name):
-    print(f"Hello {name}!")
-hello("World")
-`);
-    function handleMount(editor) {
-        editorRef.current = editor;
-    }
+  useEffect(() => {
+    if (user) localStorage.setItem('lite-ide-user', user)
+  }, [user])
 
-    function formatCode() {
-        editorRef.current?.getAction("editor.action.formatDocument").run();
-    }
-
-    function undo() {
-        editorRef.current?.trigger("", "undo", null);
-    }
-    function redo() {
-        editorRef.current?.trigger("", "redo", null);
-    }
-
+  if (!user) {
     return (
-        <div>
-            <div style={{ display: "flex", gap: 8, padding: 8, background: "#1e1e1e" }}>
-                <select value={language} onChange={(e) => setLanguage(e.target.value)}>
-                    {LANGUAGES.map((l) => <option key={l}>{l}</option>)}
-                </select>
-                <button onClick={undo}>↩ Cofnij</button>
-                <button onClick={redo}>↪ Ponów</button>
-                <button onClick={formatCode}>Formatuj</button>
-            </div>
+      <div className="lobby">
+        <h1>Lite-IDE</h1>
+        <p className="muted">Pick a display name to start collaborating.</p>
+        <NameForm onSubmit={setUser} />
+      </div>
+    )
+  }
 
-            <Editor
-                value={code}
-                height="100vh"
-                language={language}
-                theme="vs-dark"
-                onMount={handleMount}
-                onChange={(value) => setCode(value ?? "")}
-                options={{
-                    fontSize: 14,
-                    wordWrap: "on",
-                }}
-            />
-        </div>
-    );
+  if (doc) return <CodeEditor document={doc} userName={user} onBack={() => setDoc(null)} />
+
+  return <DocumentList onOpen={setDoc} />
+}
+
+function NameForm({ onSubmit }) {
+  const [name, setName] = useState('')
+  return (
+    <form
+      className="create-row"
+      onSubmit={(e) => { e.preventDefault(); if (name.trim()) onSubmit(name.trim()) }}
+    >
+      <input placeholder="your name" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+      <button type="submit" disabled={!name.trim()}>Continue</button>
+    </form>
+  )
 }

@@ -119,8 +119,16 @@ object DocumentRoom:
             if baseVersion < 0 || baseVersion > s.version then
               (Left(s"baseVersion $baseVersion out of range [0, ${s.version}]"): Either[String, Int])
                 .pure[F]
+            else if Op.isNoop(op) then
+              // Drop trivial / empty edits before they reach OT so we don't bump the version
+              // number for a change nobody can see. The client still observes its own state
+              // is consistent; if it really needs an ack it can issue a real edit.
+              (Right(s.version): Either[String, Int]).pure[F]
             else
-              // Transform `op` against every op applied after `baseVersion`.
+              // Transform `op` against every op applied after `baseVersion`. We do NOT
+              // filter noop products of OT here: keeping them in history preserves the
+              // invariant `history.length == version`, and the author still gets an
+              // `Applied` to ack the edit they submitted.
               val intervening = s.history.drop(baseVersion)
               val transformed = intervening.foldLeft(List(op)) { (acc, b) =>
                 acc.flatMap(a => Op.transform(a, b))
