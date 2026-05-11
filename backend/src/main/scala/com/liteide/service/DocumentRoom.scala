@@ -1,9 +1,10 @@
 package com.liteide.service
 
 import cats.effect.kernel.{Concurrent, Ref}
-import cats.effect.std.{Mutex, Topic}
+import cats.effect.std.Mutex
 import cats.syntax.all.*
 import fs2.Stream
+import fs2.concurrent.Topic
 
 import com.liteide.domain.{Op, Presence}
 import com.liteide.domain.Ids.{DocumentId, SessionId, UserId}
@@ -89,7 +90,7 @@ object DocumentRoom:
             peers <- presence.get
             me     = Presence(sessionId, userId, displayName, cursor = 0, selectionEnd = 0)
             _     <- presence.update(_.updated(sessionId, me))
-            snap   = ServerMsg.Snapshot(
+            snap: ServerMsg.Snapshot = ServerMsg.Snapshot(
                        documentId  = docId,
                        sessionId   = sessionId,
                        userId      = userId,

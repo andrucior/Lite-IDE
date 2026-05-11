@@ -48,9 +48,8 @@ lazy val root = (project in file("."))
       "-Wvalue-discard",
       "-Xfatal-warnings",
       "-source:3.3",
-      "-language:strictEquality",
     ),
 
-    Test / fork := true,
-    run / fork  := true,
+    Test / fork           := true,
+    Compile / run / fork  := true,
   )
