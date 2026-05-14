@@ -18,11 +18,12 @@ object Op:
 
   /** True for ops that don't change the document — insertions of the empty string and
     * zero-length deletions. The OT step can produce these in the deletion-overlap cases
-    * (and a misbehaving client can submit them); we drop them before they reach history.
+    * (and a misbehaving client can submit them); we drop only true no-ops before they
+    * reach history, leaving invalid operations to validation/apply.
     */
   def isNoop(op: Op): Boolean = op match
     case Op.Insert(_, t) => t.isEmpty
-    case Op.Delete(_, l) => l <= 0
+    case Op.Delete(_, l) => l == 0
 
   /** Apply `op` to `text`. Returns Left with a reason if the operation is out of range. */
   def applyTo(text: String, op: Op): Either[String, String] =
