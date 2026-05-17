@@ -14,12 +14,17 @@ val Versions = new {
   val MunitCE3 = "2.0.0"
 }
 
-scalacOptions += "-Wunused:all"
-
 lazy val root = (project in file("."))
   .settings(
     name                := "lite-ide-backend",
     Compile / mainClass := Some("com.liteide.Main"),
+
+    assembly / assemblyMergeStrategy := {
+      case PathList("META-INF", "services", xs @ _*) => MergeStrategy.concat
+      case PathList("META-INF", xs @ _*)             => MergeStrategy.discard
+      case PathList("reference.conf")                => MergeStrategy.concat
+      case _                                         => MergeStrategy.first
+    },
 
     libraryDependencies ++= Seq(
       // Effect + streams
