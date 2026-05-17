@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import CodeEditor from './CodeEditor.jsx'
 import DocumentList from './DocumentList.jsx'
+import { sanitizeUserName } from './api.js'
 
 /**
  * Top-level shell.
@@ -12,10 +13,13 @@ import DocumentList from './DocumentList.jsx'
  */
 export default function App() {
   const [doc, setDoc]   = useState(null)
-  const [user, setUser] = useState(() => localStorage.getItem('lite-ide-user') ?? '')
+  // Read-side sanitization so a tampered localStorage value can't enter app state
+  // unchecked. The same helper is applied on write below; together they break the
+  // taint flow that would otherwise pass browser-storage data straight back out.
+  const [user, setUser] = useState(() => sanitizeUserName(localStorage.getItem('lite-ide-user') ?? ''))
 
   useEffect(() => {
-    if (user) localStorage.setItem('lite-ide-user', user)
+    if (user) localStorage.setItem('lite-ide-user', sanitizeUserName(user))
   }, [user])
 
   if (!user) {
