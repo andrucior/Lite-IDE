@@ -37,11 +37,15 @@ jobs:
         run: npm run build
 
   backend:
+    name: Backend
+    runs-on: ubuntu-latest
+
+    steps:
     - name: Setup Java
       uses: actions/setup-java@v4
       with:
-      distribution: temurin
-      java-version: 17
+        distribution: temurin
+        java-version: 17
 
     - name: Setup sbt
       uses: sbt/setup-sbt@v1
