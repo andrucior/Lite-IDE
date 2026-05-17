@@ -6,9 +6,9 @@ import io.circe.syntax.*
 
 /** A primitive text operation in the collaborative document.
   *
-  * Two operations are enough for plain-text editing; richer formatting can be modelled on
-  * top later. Positions are character indices into the document's current text (UTF-16
-  * code units — same as JavaScript / Monaco, so the frontend doesn't have to translate).
+  * Two operations are enough for plain-text editing; richer formatting can be modelled on top
+  * later. Positions are character indices into the document's current text (UTF-16 code units —
+  * same as JavaScript / Monaco, so the frontend doesn't have to translate).
   */
 enum Op derives CanEqual:
   case Insert(pos: Int, text: String)
@@ -20,7 +20,8 @@ object Op:
   def applyTo(text: String, op: Op): Either[String, String] =
     op match
       case Op.Insert(pos, t) =>
-        if pos < 0 || pos > text.length then Left(s"insert out of range: pos=$pos len=${text.length}")
+        if pos < 0 || pos > text.length then
+          Left(s"insert out of range: pos=$pos len=${text.length}")
         else Right(text.substring(0, pos) ++ t ++ text.substring(pos))
       case Op.Delete(pos, len) =>
         if pos < 0 || len < 0 || pos + len > text.length then
@@ -33,8 +34,8 @@ object Op:
 
   /** Operational transform.
     *
-    * Given `a` and `b` were both produced from the same baseline, and `b` is applied
-    * first, return the sequence of ops equivalent to `a` against the post-`b` state.
+    * Given `a` and `b` were both produced from the same baseline, and `b` is applied first, return
+    * the sequence of ops equivalent to `a` against the post-`b` state.
     *
     * Most cases return a single op; deleting across a remote insertion splits into two.
     */
@@ -56,7 +57,7 @@ object Op:
         if pb <= pa then List(Op.Delete(pa + tb.length, la))
         else if pb >= pa + la then List(Op.Delete(pa, la))
         else
-          val leftLen  = pb - pa
+          val leftLen = pb - pa
           val rightLen = la - leftLen
           List(Op.Delete(pa, leftLen), Op.Delete(pa + tb.length, rightLen))
 

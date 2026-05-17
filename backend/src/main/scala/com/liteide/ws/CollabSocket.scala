@@ -17,26 +17,24 @@ import com.liteide.service.{DocumentRoom, DocumentService, RoomRegistry}
   *
   * Lifecycle of one connection:
   *
-  *   1. URL is `/ws/documents/:id?user=<name>`.
-  *   2. We look up (or lazily create) the `DocumentRoom`.
-  *   3. We mint a fresh `SessionId` / `UserId`, register presence, and ship a `Snapshot`.
-  *   4. Inbound frames are decoded into `ClientMsg` and dispatched onto the room.
-  *   5. The outbound stream is the room's broadcast topic; we drop our own `PeerJoined`
-  *      to avoid the obviously-redundant echo, but we keep our own `Applied` because the
-  *      client uses it as an authoritative ack.
-  *   6. On termination (any reason) we publish `PeerLeft` and persist the snapshot back
-  *      into the cold `DocumentService`.
+  *   1. URL is `/ws/documents/:id?user=<name>`. 2. We look up (or lazily create) the
+  *      `DocumentRoom`. 3. We mint a fresh `SessionId` / `UserId`, register presence, and ship a
+  *      `Snapshot`. 4. Inbound frames are decoded into `ClientMsg` and dispatched onto the room. 5.
+  *      The outbound stream is the room's broadcast topic; we drop our own `PeerJoined` to avoid
+  *      the obviously-redundant echo, but we keep our own `Applied` because the client uses it as
+  *      an authoritative ack. 6. On termination (any reason) we publish `PeerLeft` and persist the
+  *      snapshot back into the cold `DocumentService`.
   */
 object CollabSocket:
 
   private val logger = org.slf4j.LoggerFactory.getLogger("com.liteide.ws.CollabSocket")
 
   def route[F[_]: Async](
-      wsb:      WebSocketBuilder2[F],
-      rooms:    RoomRegistry[F],
-      docs:     DocumentService[F],
-      docId:    DocumentId,
-      userName: String,
+      wsb: WebSocketBuilder2[F],
+      rooms: RoomRegistry[F],
+      docs: DocumentService[F],
+      docId: DocumentId,
+      userName: String
   ): F[Response[F]] =
     docs.get(docId).flatMap {
       case None =>
@@ -45,8 +43,8 @@ object CollabSocket:
         wsb
           .withFilterPingPongs(true)
           .build(
-            send    = Stream.emit(textFrame(ServerMsg.ErrorMsg(s"no such document: $docId"))),
-            receive = (_: Stream[F, WebSocketFrame]) => Stream.empty,
+            send = Stream.emit(textFrame(ServerMsg.ErrorMsg(s"no such document: $docId"))),
+            receive = (_: Stream[F, WebSocketFrame]) => Stream.empty
           )
       case Some(doc) =>
         rooms.getOrCreate(docId, doc.contents).flatMap { room =>
@@ -55,17 +53,16 @@ object CollabSocket:
     }
 
   private def openConnection[F[_]: Async](
-      wsb:      WebSocketBuilder2[F],
-      room:     DocumentRoom[F],
-      docs:     DocumentService[F],
-      userName: String,
+      wsb: WebSocketBuilder2[F],
+      room: DocumentRoom[F],
+      docs: DocumentService[F],
+      userName: String
   ): F[Response[F]] =
     val sessionId = SessionId.random
-    val userId    = UserId.random
-    val display   = if userName.isBlank then s"anon-${sessionId.value.toString.take(4)}" else userName
+    val userId = UserId.random
+    val display = if userName.isBlank then s"anon-${sessionId.value.toString.take(4)}" else userName
 
     room.join(sessionId, userId, display).flatMap { case (snapshot, broadcast) =>
-
       val outbound: Stream[F, WebSocketFrame] =
         Stream.emit(textFrame(snapshot)) ++
           broadcast
@@ -73,7 +70,7 @@ object CollabSocket:
               // Don't echo our own join back at us — the snapshot already lists every
               // peer that was present at handshake time.
               case ServerMsg.PeerJoined(p) => p.sessionId != sessionId
-              case _                       => true
+              case _ => true
             }
             .map(textFrame)
 
@@ -100,9 +97,9 @@ object CollabSocket:
     }
 
   private def handleClientMsg[F[_]: Async](
-      room:      DocumentRoom[F],
+      room: DocumentRoom[F],
       sessionId: SessionId,
-      msg:       ClientMsg,
+      msg: ClientMsg
   ): F[Unit] =
     msg match
       case ClientMsg.Edit(baseVersion, op) =>
