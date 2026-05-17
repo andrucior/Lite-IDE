@@ -1,6 +1,8 @@
 ThisBuild / version      := "0.1.0-SNAPSHOT"
 ThisBuild / scalaVersion := "3.3.7"
 ThisBuild / organization := "com.liteide"
+ThisBuild / semanticdbEnabled := true
+hisBuild / semanticdbVersion := scalafixSemanticdb.revision
 
 val Versions = new {
   val Http4s   = "0.23.30"
