@@ -3,6 +3,7 @@ package com.liteide.http
 import cats.effect.Async
 import cats.effect.kernel.Resource
 import com.comcast.ip4s.{Host, Port}
+import fs2.io.net.Network
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.server.Server
 
@@ -12,7 +13,7 @@ import com.liteide.service.{DocumentService, RoomRegistry}
 /** Wires up the HTTP server. Routing trees live in their own files under `http/`. */
 object HttpServer:
 
-  def serve[F[_]: Async](
+  def serve[F[_]: Async: Network](
       config: HttpConfig,
       docs:   DocumentService[F],
       rooms:  RoomRegistry[F],

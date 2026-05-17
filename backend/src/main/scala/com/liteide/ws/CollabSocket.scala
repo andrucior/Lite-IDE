@@ -89,13 +89,15 @@ object CollabSocket:
             Async[F].unit
         }
 
+      // Attach cleanup to the outbound stream's finalizer only. Registering it via both a
+      // stream finalizer AND `withOnClose` would run it twice on a normal close — double
+      // `leave` is observable as a spurious `PeerLeft` for an already-departed session.
       val finalize: F[Unit] =
         room.leave(sessionId) *>
           room.snapshot.flatMap { case (v, t) => docs.save(room.documentId, t, v) }
 
       wsb
         .withFilterPingPongs(true)
-        .withOnClose(finalize)
         .build(outbound.onFinalize(finalize), inbound)
     }
 

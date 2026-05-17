@@ -7,3 +7,9 @@ Do planowanych funkcjonalności należą:
 
 W ramach dodatkowych wymagań możliwa jest również implementacja systemu 
 uprawnień (właściciel / edytor / obserwator), a takze historia zmian.
+
+## Dokumentacja
+
+- [`GETTING_STARTED.md`](./GETTING_STARTED.md) — jak uruchomić backend i frontend, jak puszczać testy.
+- [`backend/README.md`](./backend/README.md) — architektura serwera, REST + WebSocket, model OT.
+- [`frontend/frontend/README.md`](./frontend/frontend/README.md) — struktura aplikacji React, integracja z Monaco.
