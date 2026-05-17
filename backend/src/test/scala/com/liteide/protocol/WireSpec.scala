@@ -43,7 +43,7 @@ final class WireSpec extends FunSuite:
     val docId = DocumentId(UUID.fromString("00000000-0000-0000-0000-000000000001"))
     val sid   = SessionId(UUID.fromString("00000000-0000-0000-0000-000000000002"))
     val uid   = UserId(UUID.fromString("00000000-0000-0000-0000-000000000003"))
-    val snap  =
+    val snap: ServerMsg =
       ServerMsg.Snapshot(docId, sid, uid, version = 7, text = "hi", peers = Nil)
     val j     = snap.asJson
     assertEquals(j.hcursor.downField("type").as[String], Right("snapshot"))
@@ -52,7 +52,7 @@ final class WireSpec extends FunSuite:
 
   test("encode applied carries every op verbatim"):
     val sid = SessionId(UUID.fromString("00000000-0000-0000-0000-000000000002"))
-    val msg = ServerMsg.Applied(version = 4, ops = List(Op.Insert(0, "x")), authorSessionId = sid)
+    val msg: ServerMsg = ServerMsg.Applied(version = 4, ops = List(Op.Insert(0, "x")), authorSessionId = sid)
     val j   = msg.asJson
     assertEquals(j.hcursor.downField("type").as[String], Right("applied"))
     val opsArr = j.hcursor.downField("ops").values.toList.flatten
@@ -62,13 +62,14 @@ final class WireSpec extends FunSuite:
   test("encode cursor update"):
     val sid = SessionId(UUID.randomUUID())
     val uid = UserId(UUID.randomUUID())
-    val msg = ServerMsg.CursorUpdate(sid, uid, "alice", cursor = 12, selectionEnd = 15)
+    val msg: ServerMsg = ServerMsg.CursorUpdate(sid, uid, "alice", cursor = 12, selectionEnd = 15)
     val j   = msg.asJson
     assertEquals(j.hcursor.downField("type").as[String], Right("cursor"))
     assertEquals(j.hcursor.downField("displayName").as[String], Right("alice"))
 
   test("encode error message"):
-    val j = ServerMsg.ErrorMsg("nope").asJson
+    val msg: ServerMsg = ServerMsg.ErrorMsg("nope")
+    val j = msg.asJson
     assertEquals(j.hcursor.downField("type").as[String], Right("error"))
     assertEquals(j.hcursor.downField("reason").as[String], Right("nope"))
 
@@ -76,8 +77,10 @@ final class WireSpec extends FunSuite:
     val sid = SessionId(UUID.randomUUID())
     val uid = UserId(UUID.randomUUID())
     val p   = Presence(sid, uid, "bob", cursor = 0, selectionEnd = 0)
-    val j1  = ServerMsg.PeerJoined(p).asJson.noSpaces
-    val j2  = ServerMsg.PeerLeft(sid).asJson.noSpaces
+    val m1: ServerMsg = ServerMsg.PeerJoined(p)
+    val m2: ServerMsg = ServerMsg.PeerLeft(sid)
+    val j1  = m1.asJson.noSpaces
+    val j2  = m2.asJson.noSpaces
     // We re-parse to defend against accidental noSpaces serialiser changes, and pin the
     // `type` discriminator value so the frontend's switch doesn't silently break.
     assertEquals(parse(j1).toOption.flatMap(_.hcursor.downField("type").as[String].toOption), Some("peerJoined"))

@@ -90,6 +90,10 @@ object DocumentRoom:
             peers <- presence.get
             me     = Presence(sessionId, userId, displayName, cursor = 0, selectionEnd = 0)
             _     <- presence.update(_.updated(sessionId, me))
+            // Explicit type ascription is required: without it, the for-comprehension
+            // widens `snap` to the parent `ServerMsg` type (due to the later
+            // `topic.publish1` step) and the yielded tuple no longer matches the
+            // declared return type `(ServerMsg.Snapshot, Stream[F, ServerMsg])`.
             snap: ServerMsg.Snapshot = ServerMsg.Snapshot(
                        documentId  = docId,
                        sessionId   = sessionId,

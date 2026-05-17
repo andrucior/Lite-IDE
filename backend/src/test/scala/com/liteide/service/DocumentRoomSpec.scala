@@ -23,6 +23,10 @@ final class DocumentRoomSpec extends CatsEffectSuite:
 
   /** Run a room callback that has access to its broadcast stream pre-drained into a queue.
     * The queue lets a test pull messages one at a time without racing the room.
+    *
+    * `join` publishes a `PeerJoined(self)` after the subscription is allocated, so the
+    * joiner's own queue will contain it. We drain it here (best-effort, short timeout) so
+    * tests can assert against the first *meaningful* event without racing.
     */
   private def withSubscriber[A](initial: String)(
       body: (DocumentRoom[IO], SessionId, Queue[IO, ServerMsg]) => IO[A]
@@ -35,6 +39,16 @@ final class DocumentRoomSpec extends CatsEffectSuite:
       (_, stream) = joined
       queue  <- Queue.unbounded[IO, ServerMsg]
       pump  <- stream.evalMap(queue.offer).compile.drain.start
+      // Swallow our own PeerJoined echo. The timeout is short — if it never arrives the
+      // test still proceeds; if it does, the test starts from a clean queue.
+      _     <- Stream
+                 .repeatEval(queue.take.timeout(200.millis).attempt)
+                 .takeWhile {
+                   case Right(_: ServerMsg.PeerJoined) => true
+                   case _                              => false
+                 }
+                 .compile
+                 .drain
       out   <- body(room, sid, queue)
       _     <- pump.cancel
     yield out
@@ -63,7 +77,8 @@ final class DocumentRoomSpec extends CatsEffectSuite:
                       assertEquals(ops, List(Op.Insert(2, "c")))
                       assertEquals(author, sid)
                     case other => fail(s"expected Applied, got $other")
-        (v, t) <- room.snapshot
+        s      <- room.snapshot
+        (v, t)  = s
         _       = assertEquals(v, 1)
         _       = assertEquals(t, "abc")
       yield ()
@@ -142,6 +157,36 @@ final class DocumentRoomSpec extends CatsEffectSuite:
         _   = assertEquals(c.cursor, 2)
         _   = assertEquals(c.selectionEnd, 3)
         _  <- f.cancel
+      yield ()
+    }
+
+  test("concurrent edits from two peers converge (mutex serialises, both versions reachable)"):
+    // Two sessions race to insert at position 0 of the same baseVersion. The room's
+    // mutex must serialise the edits and the OT must shift whichever one loses the race
+    // by the length of the winner. Regardless of who goes first the final document must
+    // contain both insertions and the version must advance by exactly 2.
+    DocumentRoom.make[IO](docId, "Z").flatMap { room =>
+      val sidA = SessionId.random
+      val sidB = SessionId.random
+      for
+        _ <- room.join(sidA, UserId.random, "alice")
+        _ <- room.join(sidB, UserId.random, "bob")
+        // Fire the two edits in parallel — both based on version 0.
+        results <- IO.both(
+                     room.submitEdit(sidA, 0, Op.Insert(0, "A")),
+                     room.submitEdit(sidB, 0, Op.Insert(0, "B")),
+                   )
+        (rA, rB) = results
+        _  = assert(rA.isRight, s"A failed: $rA")
+        _  = assert(rB.isRight, s"B failed: $rB")
+        s <- room.snapshot
+        (version, text) = s
+        _  = assertEquals(version, 2)
+        // Both characters must be present and "Z" must be untouched.
+        _  = assert(text.contains("A"), s"missing A in '$text'")
+        _  = assert(text.contains("B"), s"missing B in '$text'")
+        _  = assert(text.contains("Z"), s"missing Z in '$text'")
+        _  = assertEquals(text.length, 3)
       yield ()
     }
 

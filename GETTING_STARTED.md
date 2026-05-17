@@ -2,7 +2,7 @@
 
 This page tells you how to run Lite-IDE end-to-end on a fresh machine. Deeper notes
 live next to the code they describe: [`backend/README.md`](./backend/README.md) and
-[`frontend/README.md`](./frontend/README.md).
+[`frontend/frontend/README.md`](./frontend/frontend/README.md).
 
 ## What's in the repo
 
@@ -143,4 +143,4 @@ every subscriber. Cursors are a separate `{type:"cursor", ...}` message that doe
 touch the document state.
 
 See [`backend/README.md`](./backend/README.md) for the operational-transform model
-and [`frontend/README.md`](./frontend/README.md) for the Monaco wiring.
+and [`frontend/frontend/README.md`](./frontend/frontend/README.md) for the Monaco wiring.
