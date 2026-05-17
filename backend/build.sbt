@@ -12,6 +12,8 @@ val Versions = new {
   val MunitCE3 = "2.0.0"
 }
 
+scalacOptions += "-Wunused:all"
+
 lazy val root = (project in file("."))
   .settings(
     name                := "lite-ide-backend",
