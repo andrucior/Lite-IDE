@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { getDocumentHistory } from './api.js'
 
 /** Formats an epoch-ms timestamp as HH:MM:SS. */
@@ -23,14 +23,14 @@ export default function HistoryPanel({ documentId, onClose }) {
   const [entries, setEntries] = useState(null)
   const [error,   setError]   = useState(null)
 
-  function load() {
+  const load = useCallback(() => {
     setError(null)
     getDocumentHistory(documentId)
       .then(setEntries)
       .catch((e) => setError(e.message))
-  }
+  }, [documentId])
 
-  useEffect(() => { load() }, [documentId])
+  useEffect(() => { load() }, [documentId, load])
 
   return (
     <div className="history-panel">
@@ -50,8 +50,8 @@ export default function HistoryPanel({ documentId, onClose }) {
         )}
         {entries?.length > 0 && (
           <ol className="history-list">
-            {[...entries].reverse().map((e, i) => (
-              <li key={i} className="history-entry">
+            {[...entries].reverse().map((e) => (
+              <li key={e.version} className="history-entry">
                 <span className="history-meta">
                   <span className="history-author">{e.authorDisplayName}</span>
                   <span className="history-time muted">{formatTime(e.timestamp)}</span>

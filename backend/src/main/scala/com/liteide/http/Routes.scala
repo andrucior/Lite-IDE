@@ -84,16 +84,6 @@ object Routes:
           }
         }
 
-      // Get one -------------------------------------------------------------
-      case GET -> Root / idStr =>
-        DocumentId.fromString(idStr) match
-          case None => NotFound(Json.obj("error" -> "invalid id".asJson))
-          case Some(id) =>
-            docs.get(id).flatMap {
-              case None    => NotFound(Json.obj("error" -> "no such document".asJson))
-              case Some(d) => Ok(d.asJson)
-            }
-
       // Get history ---------------------------------------------------------
       case GET -> Root / idStr / "history" =>
         DocumentId.fromString(idStr) match
@@ -102,6 +92,16 @@ object Routes:
             rooms.get(id).flatMap {
               case None       => Ok(List.empty[HistoryEntry].asJson)
               case Some(room) => room.historyEntries.flatMap(entries => Ok(entries.asJson))
+            }
+
+      // Get one -------------------------------------------------------------
+      case GET -> Root / idStr =>
+        DocumentId.fromString(idStr) match
+          case None => NotFound(Json.obj("error" -> "invalid id".asJson))
+          case Some(id) =>
+            docs.get(id).flatMap {
+              case None    => NotFound(Json.obj("error" -> "no such document".asJson))
+              case Some(d) => Ok(d.asJson)
             }
     }
 
