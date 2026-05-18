@@ -14,6 +14,7 @@ import org.http4s.server.middleware.CORS
 import org.http4s.server.websocket.WebSocketBuilder2
 
 import com.liteide.domain.Ids.DocumentId
+import com.liteide.domain.HistoryEntry
 import com.liteide.service.{DocumentService, RoomRegistry}
 import com.liteide.ws.CollabSocket
 
@@ -43,7 +44,7 @@ object Routes:
   ): HttpRoutes[F] =
     val tree = Router(
       "/"              -> health[F],
-      "/api/documents" -> documents[F](docs),
+      "/api/documents" -> documents[F](docs, rooms),
       "/ws"            -> websockets[F](docs, rooms, wsb),
     )
     CORS.policy.withAllowOriginAll.withAllowCredentials(false).apply(tree)
@@ -59,7 +60,7 @@ object Routes:
 
   // --------------------------------------------------------------- documents
 
-  private def documents[F[_]: Async](docs: DocumentService[F]): HttpRoutes[F] =
+  private def documents[F[_]: Async](docs: DocumentService[F], rooms: RoomRegistry[F]): HttpRoutes[F] =
     val dsl = new Http4sDsl[F] {}
     import dsl.*
 
@@ -91,6 +92,16 @@ object Routes:
             docs.get(id).flatMap {
               case None    => NotFound(Json.obj("error" -> "no such document".asJson))
               case Some(d) => Ok(d.asJson)
+            }
+
+      // Get history ---------------------------------------------------------
+      case GET -> Root / idStr / "history" =>
+        DocumentId.fromString(idStr) match
+          case None => NotFound(Json.obj("error" -> "invalid id".asJson))
+          case Some(id) =>
+            rooms.get(id).flatMap {
+              case None       => Ok(List.empty[HistoryEntry].asJson)
+              case Some(room) => room.historyEntries.flatMap(entries => Ok(entries.asJson))
             }
     }
 

@@ -5,7 +5,7 @@ import cats.effect.std.Queue
 import fs2.Stream
 import munit.CatsEffectSuite
 
-import com.liteide.domain.{Op, Presence}
+import com.liteide.domain.{HistoryEntry, Op, Presence}
 import com.liteide.domain.Ids.{DocumentId, SessionId, UserId}
 import com.liteide.protocol.Wire.ServerMsg
 
@@ -200,5 +200,26 @@ final class DocumentRoomSpec extends CatsEffectSuite:
         _  <- room.leave(sid)
         n2 <- room.peerCount
         _   = assertEquals(n2, 0)
+      yield ()
+    }
+
+  test("historyEntries is empty on a fresh room"):
+    DocumentRoom.make[IO](docId, "abc").flatMap { room =>
+      room.historyEntries.map(h => assertEquals(h, List.empty[HistoryEntry]))
+    }
+
+  test("historyEntries records op, version and author after an edit"):
+    DocumentRoom.make[IO](docId, "ab").flatMap { room =>
+      val sid = SessionId.random
+      for
+        _       <- room.join(sid, UserId.random, "alice")
+        _       <- room.submitEdit(sid, 0, Op.Insert(2, "c"))
+        entries <- room.historyEntries
+        _        = assertEquals(entries.size, 1)
+        entry    = entries.head
+        _        = assertEquals(entry.op, Op.Insert(2, "c"))
+        _        = assertEquals(entry.version, 1)
+        _        = assertEquals(entry.authorDisplayName, "alice")
+        _        = assertEquals(entry.authorSessionId, sid)
       yield ()
     }
