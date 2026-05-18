@@ -234,6 +234,13 @@ button.active {
   align-items: baseline;
 }
 
+.history-delta {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .history-author {
   font-weight: 500;
   color: var(--accent);

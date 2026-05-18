@@ -1,24 +1,76 @@
 import { useCallback, useEffect, useState } from 'react'
 import { getDocumentHistory } from './api.js'
 
-/** Formats an epoch-ms timestamp as HH:MM:SS. */
+const BATCH_WINDOW_MS = 3000
+
+/** Groups consecutive entries from the same author within BATCH_WINDOW_MS into batches. */
+function groupEntries(entries) {
+  if (!entries.length) return []
+  const groups = []
+  let batch = [entries[0]]
+
+  for (let i = 1; i < entries.length; i++) {
+    const e = entries[i]
+    const prev = entries[i - 1]
+    const sameAuthor = e.authorDisplayName === prev.authorDisplayName
+    const closeInTime = e.timestamp - prev.timestamp < BATCH_WINDOW_MS
+    if (sameAuthor && closeInTime) {
+      batch.push(e)
+    } else {
+      groups.push(batch)
+      batch = [e]
+    }
+  }
+  groups.push(batch)
+  return groups
+}
+
+/** Net insert/delete counts for a batch. */
+function batchStats(batch) {
+  let inserted = 0
+  let deleted = 0
+  let preview = ''
+  for (const { op } of batch) {
+    if (op.type === 'insert') { inserted += op.text.length; if (!preview) preview = op.text }
+    else                      { deleted  += op.length }
+  }
+  return { inserted, deleted, preview }
+}
+
 function formatTime(ms) {
   return new Date(ms).toLocaleTimeString()
 }
 
-/** Renders one op as a short human-readable label. */
-function OpLabel({ op }) {
-  if (op.type === 'insert') {
-    const preview = op.text.length > 20 ? op.text.slice(0, 20) + '…' : op.text
-    return <span className="op-insert">+{op.pos} <code>{preview}</code></span>
-  }
-  return <span className="op-delete">−{op.pos} ({op.length})</span>
+function BatchEntry({ batch }) {
+  const first = batch[0]
+  const last  = batch[batch.length - 1]
+  const { inserted, deleted, preview } = batchStats(batch)
+
+  const previewText = preview.length > 24 ? preview.slice(0, 24) + '…' : preview
+  const timeLabel   = batch.length > 1
+    ? `${formatTime(first.timestamp)} – ${formatTime(last.timestamp)}`
+    : formatTime(first.timestamp)
+  const versionLabel = batch.length > 1
+    ? `v${first.version}–${last.version}`
+    : `v${first.version}`
+
+  return (
+    <li className="history-entry">
+      <span className="history-meta">
+        <span className="history-author">{first.authorDisplayName}</span>
+        <span className="history-time muted">{timeLabel}</span>
+        <span className="history-version muted">{versionLabel}</span>
+      </span>
+      <span className="history-delta">
+        {inserted > 0 && <span className="op-insert">+{inserted} chars{previewText && <> <code>{previewText}</code></>}</span>}
+        {inserted > 0 && deleted > 0 && ' '}
+        {deleted  > 0 && <span className="op-delete">−{deleted} chars</span>}
+        {inserted === 0 && deleted === 0 && <span className="muted">no change</span>}
+      </span>
+    </li>
+  )
 }
 
-/**
- * Slide-in panel showing the document's edit history fetched from the backend.
- * Refreshes on open; a manual "Refresh" button allows reloading without close/open.
- */
 export default function HistoryPanel({ documentId, onClose }) {
   const [entries, setEntries] = useState(null)
   const [error,   setError]   = useState(null)
@@ -32,33 +84,26 @@ export default function HistoryPanel({ documentId, onClose }) {
 
   useEffect(() => { load() }, [documentId, load])
 
+  const groups = entries ? groupEntries(entries).reverse() : []
+
   return (
     <div className="history-panel">
       <div className="history-header">
         <strong>Edit history</strong>
         <div className="history-header-actions">
-          <button onClick={load} title="Refresh history">↻</button>
+          <button onClick={load} title="Refresh">↻</button>
           <button onClick={onClose} title="Close">✕</button>
         </div>
       </div>
 
       <div className="history-body">
-        {error && <p className="error">{error}</p>}
+        {error   && <p className="error">{error}</p>}
         {!error && entries === null && <p className="muted">Loading…</p>}
-        {!error && entries?.length === 0 && (
-          <p className="muted">No edits yet.</p>
-        )}
-        {entries?.length > 0 && (
+        {!error && entries?.length === 0 && <p className="muted">No edits yet.</p>}
+        {groups.length > 0 && (
           <ol className="history-list">
-            {[...entries].reverse().map((e) => (
-              <li key={e.version} className="history-entry">
-                <span className="history-meta">
-                  <span className="history-author">{e.authorDisplayName}</span>
-                  <span className="history-time muted">{formatTime(e.timestamp)}</span>
-                  <span className="history-version muted">v{e.version}</span>
-                </span>
-                <OpLabel op={e.op} />
-              </li>
+            {groups.map((batch, i) => (
+              <BatchEntry key={batch[batch.length - 1].version} batch={batch} />
             ))}
           </ol>
         )}
