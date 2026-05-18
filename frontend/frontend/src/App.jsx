@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import CodeEditor from './CodeEditor.jsx'
 import DocumentList from './DocumentList.jsx'
-import { sanitizeUserName } from './api.js'
+import { getOrCreateUserId, sanitizeUserName } from './api.js'
 
 /**
  * Top-level shell.
@@ -10,13 +10,18 @@ import { sanitizeUserName } from './api.js'
  * the user name in localStorage so reconnects after a tab refresh keep the same display
  * name (the backend invents one when missing, but having a stable name across sessions
  * is what users expect).
+ *
+ * `userId` is a stable UUID generated once per browser and persisted in localStorage.
+ * It is used by the permission system: the document owner can grant or restrict access
+ * for specific user IDs.
  */
 export default function App() {
-  const [doc, setDoc]   = useState(null)
+  const [doc,    setDoc]  = useState(null)
   // Read-side sanitization so a tampered localStorage value can't enter app state
   // unchecked. The same helper is applied on write below; together they break the
   // taint flow that would otherwise pass browser-storage data straight back out.
-  const [user, setUser] = useState(() => sanitizeUserName(localStorage.getItem('lite-ide-user') ?? ''))
+  const [user,   setUser] = useState(() => sanitizeUserName(localStorage.getItem('lite-ide-user') ?? ''))
+  const [userId]          = useState(() => getOrCreateUserId())
 
   useEffect(() => {
     if (user) localStorage.setItem('lite-ide-user', sanitizeUserName(user))
@@ -32,9 +37,18 @@ export default function App() {
     )
   }
 
-  if (doc) return <CodeEditor document={doc} userName={user} onBack={() => setDoc(null)} />
+  if (doc) {
+    return (
+      <CodeEditor
+        document={doc}
+        userName={user}
+        userId={userId}
+        onBack={() => setDoc(null)}
+      />
+    )
+  }
 
-  return <DocumentList onOpen={setDoc} />
+  return <DocumentList onOpen={setDoc} userId={userId} />
 }
 
 function NameForm({ onSubmit }) {

@@ -5,7 +5,7 @@ import cats.effect.std.Queue
 import fs2.Stream
 import munit.CatsEffectSuite
 
-import com.liteide.domain.{Op, Presence}
+import com.liteide.domain.{Op, Presence, Role}
 import com.liteide.domain.Ids.{DocumentId, SessionId, UserId}
 import com.liteide.protocol.Wire.ServerMsg
 
@@ -35,7 +35,7 @@ final class DocumentRoomSpec extends CatsEffectSuite:
       room  <- DocumentRoom.make[IO](docId, initial)
       sid    = SessionId.random
       uid    = UserId.random
-      joined <- room.join(sid, uid, "alice")
+      joined <- room.join(sid, uid, "alice", Role.Editor)
       (_, stream) = joined
       queue  <- Queue.unbounded[IO, ServerMsg]
       pump  <- stream.evalMap(queue.offer).compile.drain.start
@@ -56,7 +56,7 @@ final class DocumentRoomSpec extends CatsEffectSuite:
   test("join returns a snapshot of the initial state"):
     val room = DocumentRoom.make[IO](docId, "hello")
     room.flatMap { r =>
-      r.join(SessionId.random, UserId.random, "alice").map { case (snap, _) =>
+      r.join(SessionId.random, UserId.random, "alice", Role.Editor).map { case (snap, _) =>
         assertEquals(snap.text, "hello")
         assertEquals(snap.version, 0)
         assertEquals(snap.peers, List.empty[Presence])
@@ -138,8 +138,8 @@ final class DocumentRoomSpec extends CatsEffectSuite:
       val sidA = SessionId.random
       val sidB = SessionId.random
       for
-        _ <- room.join(sidA, UserId.random, "alice")
-        b <- room.join(sidB, UserId.random, "bob")
+        _ <- room.join(sidA, UserId.random, "alice", Role.Editor)
+        b <- room.join(sidB, UserId.random, "bob", Role.Editor)
         (_, streamB) = b
         // Drain B's stream into a queue, then have A move their cursor.
         q  <- Queue.unbounded[IO, ServerMsg]
@@ -169,8 +169,8 @@ final class DocumentRoomSpec extends CatsEffectSuite:
       val sidA = SessionId.random
       val sidB = SessionId.random
       for
-        _ <- room.join(sidA, UserId.random, "alice")
-        _ <- room.join(sidB, UserId.random, "bob")
+        _ <- room.join(sidA, UserId.random, "alice", Role.Editor)
+        _ <- room.join(sidB, UserId.random, "bob", Role.Editor)
         // Fire the two edits in parallel — both based on version 0.
         results <- IO.both(
                      room.submitEdit(sidA, 0, Op.Insert(0, "A")),
@@ -194,7 +194,7 @@ final class DocumentRoomSpec extends CatsEffectSuite:
     DocumentRoom.make[IO](docId, "x").flatMap { room =>
       val sid = SessionId.random
       for
-        _  <- room.join(sid, UserId.random, "alice")
+        _  <- room.join(sid, UserId.random, "alice", Role.Editor)
         n1 <- room.peerCount
         _   = assertEquals(n1, 1)
         _  <- room.leave(sid)

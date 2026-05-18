@@ -3,7 +3,7 @@ package com.liteide.protocol
 import io.circe.{Decoder, DecodingFailure, Encoder, Json}
 import io.circe.syntax.*
 
-import com.liteide.domain.{Op, Presence}
+import com.liteide.domain.{Op, Presence, Role}
 import com.liteide.domain.Ids.{DocumentId, SessionId, UserId}
 
 /** Wire protocol over the collaboration WebSocket.
@@ -49,7 +49,11 @@ object Wire:
   // -- Server → client -----------------------------------------------------
 
   enum ServerMsg derives CanEqual:
-    /** First message after a successful join: full document state + current peers. */
+    /** First message after a successful join: full document state + current peers.
+      *
+      * `role` is the current user's role on this document so the frontend can
+      * immediately enforce read-only mode for observers and show the owner controls.
+      */
     case Snapshot(
         documentId: DocumentId,
         sessionId:  SessionId,
@@ -57,6 +61,7 @@ object Wire:
         version:    Int,
         text:       String,
         peers:      List[Presence],
+        role:       Role,
     )
 
     /** Authoritative broadcast of one or more ops applied at `version`.
@@ -90,7 +95,7 @@ object Wire:
 
   object ServerMsg:
     given Encoder[ServerMsg] = Encoder.instance {
-      case ServerMsg.Snapshot(docId, sid, uid, v, t, peers) =>
+      case ServerMsg.Snapshot(docId, sid, uid, v, t, peers, role) =>
         Json.obj(
           "type"       -> "snapshot".asJson,
           "documentId" -> docId.asJson,
@@ -99,6 +104,7 @@ object Wire:
           "version"    -> v.asJson,
           "text"       -> t.asJson,
           "peers"      -> peers.asJson,
+          "role"       -> role.asJson,
         )
       case ServerMsg.Applied(v, ops, author) =>
         Json.obj(

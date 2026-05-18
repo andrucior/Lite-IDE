@@ -6,7 +6,7 @@ import cats.syntax.all.*
 import fs2.Stream
 import fs2.concurrent.Topic
 
-import com.liteide.domain.{Op, Presence}
+import com.liteide.domain.{Op, Presence, Role}
 import com.liteide.domain.Ids.{DocumentId, SessionId, UserId}
 import com.liteide.protocol.Wire.ServerMsg
 
@@ -27,8 +27,11 @@ trait DocumentRoom[F[_]]:
 
   /** Subscribe to broadcast messages. Returns the snapshot the new participant should see
     * (atomically captured at subscribe time) and a stream of every subsequent broadcast.
+    *
+    * `role` is stored in the session's presence so it can be checked in `submitEdit`
+    * and broadcast to peers via `PeerJoined`.
     */
-  def join(sessionId: SessionId, userId: UserId, displayName: String)
+  def join(sessionId: SessionId, userId: UserId, displayName: String, role: Role)
       : F[(ServerMsg.Snapshot, Stream[F, ServerMsg])]
 
   /** Remove a session — drop its presence and broadcast `PeerLeft`. */
@@ -36,6 +39,8 @@ trait DocumentRoom[F[_]]:
 
   /** Apply a client edit (transforming against intervening ops if `baseVersion` is stale)
     * and broadcast the result. Returns the new version on success.
+    *
+    * Observers are rejected immediately without touching OT state.
     */
   def submitEdit(authorSessionId: SessionId, baseVersion: Int, op: Op): F[Either[String, Int]]
 
@@ -70,6 +75,7 @@ object DocumentRoom:
           sessionId:   SessionId,
           userId:      UserId,
           displayName: String,
+          role:        Role,
       ): F[(ServerMsg.Snapshot, Stream[F, ServerMsg])] =
         // We capture the snapshot AND register the subscription under the mutex. Because
         // every state-mutating publish also runs under the mutex (see `submitEdit`), this
@@ -88,7 +94,7 @@ object DocumentRoom:
             (rawStream, release) = allocated
             s     <- state.get
             peers <- presence.get
-            me     = Presence(sessionId, userId, displayName, cursor = 0, selectionEnd = 0)
+            me     = Presence(sessionId, userId, displayName, cursor = 0, selectionEnd = 0, role = role)
             _     <- presence.update(_.updated(sessionId, me))
             // Explicit type ascription is required: without it, the for-comprehension
             // widens `snap` to the parent `ServerMsg` type (due to the later
@@ -101,6 +107,7 @@ object DocumentRoom:
                        version     = s.version,
                        text        = s.text,
                        peers       = peers.values.toList,
+                       role        = role,
                      )
             _     <- topic.publish1(ServerMsg.PeerJoined(me)).void
             stream = rawStream.onFinalize(release)
@@ -120,37 +127,37 @@ object DocumentRoom:
           op:              Op,
       ): F[Either[String, Int]] =
         mutex.lock.surround {
-          state.get.flatMap { s =>
-            if baseVersion < 0 || baseVersion > s.version then
-              (Left(s"baseVersion $baseVersion out of range [0, ${s.version}]"): Either[String, Int])
-                .pure[F]
-            else if Op.isNoop(op) then
-              // Drop trivial / empty edits before they reach OT so we don't bump the version
-              // number for a change nobody can see. The client still observes its own state
-              // is consistent; if it really needs an ack it can issue a real edit.
-              (Right(s.version): Either[String, Int]).pure[F]
-            else
-              // Transform `op` against every op applied after `baseVersion`. We do NOT
-              // filter noop products of OT here: keeping them in history preserves the
-              // invariant `history.length == version`, and the author still gets an
-              // `Applied` to ack the edit they submitted.
-              val intervening = s.history.drop(baseVersion)
-              val transformed = intervening.foldLeft(List(op)) { (acc, b) =>
-                acc.flatMap(a => Op.transform(a, b))
+          // Role check: observers cannot write. We read presence under the mutex so the
+          // check is consistent with the OT state being modified below.
+          presence.get.map(_.get(authorSessionId).map(_.role).getOrElse(Role.Editor)).flatMap {
+            case Role.Observer =>
+              (Left("observers cannot submit edits"): Either[String, Int]).pure[F]
+            case _ =>
+              state.get.flatMap { s =>
+                if baseVersion < 0 || baseVersion > s.version then
+                  (Left(s"baseVersion $baseVersion out of range [0, ${s.version}]"): Either[String, Int])
+                    .pure[F]
+                else if Op.isNoop(op) then
+                  // Drop trivial / empty edits before they reach OT so we don't bump the version
+                  // number for a change nobody can see.
+                  (Right(s.version): Either[String, Int]).pure[F]
+                else
+                  val intervening = s.history.drop(baseVersion)
+                  val transformed = intervening.foldLeft(List(op)) { (acc, b) =>
+                    acc.flatMap(a => Op.transform(a, b))
+                  }
+                  Op.applyAll(s.text, transformed) match
+                    case Left(reason) =>
+                      (Left(reason): Either[String, Int]).pure[F]
+                    case Right(newText) =>
+                      val newVersion = s.version + transformed.size
+                      val newHistory = s.history ++ transformed
+                      val newState   = State(newText, newVersion, newHistory)
+                      state.set(newState) *>
+                        topic
+                          .publish1(ServerMsg.Applied(newVersion, transformed, authorSessionId))
+                          .as(Right(newVersion): Either[String, Int])
               }
-              // Apply the resulting op list; if any single application fails, abort the
-              // whole edit (the document never goes into an invalid state).
-              Op.applyAll(s.text, transformed) match
-                case Left(reason) =>
-                  (Left(reason): Either[String, Int]).pure[F]
-                case Right(newText) =>
-                  val newVersion = s.version + transformed.size
-                  val newHistory = s.history ++ transformed
-                  val newState   = State(newText, newVersion, newHistory)
-                  state.set(newState) *>
-                    topic
-                      .publish1(ServerMsg.Applied(newVersion, transformed, authorSessionId))
-                      .as(Right(newVersion): Either[String, Int])
           }
         }
 

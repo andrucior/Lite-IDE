@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react'
 import { createDocument, listDocuments } from './api.js'
 
 /** Lobby screen: pick a document or create a new one. */
-export default function DocumentList({ onOpen }) {
-  const [docs, setDocs]       = useState(null) // null = loading, [] = loaded empty
-  const [error, setError]     = useState(null)
-  const [title, setTitle]     = useState('')
+export default function DocumentList({ onOpen, userId }) {
+  const [docs,     setDocs]     = useState(null) // null = loading, [] = loaded empty
+  const [error,    setError]    = useState(null)
+  const [title,    setTitle]    = useState('')
   const [creating, setCreating] = useState(false)
 
   async function refresh() {
@@ -25,7 +25,7 @@ export default function DocumentList({ onOpen }) {
     if (!title.trim()) return
     setCreating(true)
     try {
-      const doc = await createDocument(title.trim())
+      const doc = await createDocument(title.trim(), '', userId)
       setTitle('')
       await refresh()
       onOpen(doc)

@@ -16,33 +16,26 @@ import { wsUrl } from './api.js'
  *     `pendingOps` queue; we send the next one only after the server's `applied` ack
  *     advances `versionRef`. This is the simple "send-and-wait" model: it guarantees
  *     every op we send carries a `baseVersion` that is actually consistent with the
- *     document state the server will transform against. Without this gating, two
- *     rapid local edits would share the same `baseVersion`, causing the server to
- *     transform the second one against the first as if they had been authored from
- *     the same base — but the second one's positions are already relative to the
- *     post-first text, so positions would silently drift.
+ *     document state the server will transform against.
  *   - When an `Applied` echoes our own edit (`authorSessionId === ours`), it is an ack:
  *     we advance `versionRef`, clear `inFlight`, and pump the next queued op. The
  *     Monaco buffer is already correct from the optimistic apply.
  *   - When an `Applied` is from a peer, we apply each op to Monaco (guarded by a flag
  *     so our own change-listener doesn't try to re-emit it) and advance `versionRef`.
- *
- * Follow-up is Wave-style send/buffer queueing with client-side transform — that lets
- * us pipeline more than one op without waiting, at the cost of mirroring the OT logic
- * on the client. Out of scope for this PR.
  */
-export function useCollab(documentId, userName, editorRef, monacoRef) {
-  const [status, setStatus]   = useState('connecting') // 'connecting' | 'open' | 'closed' | 'error'
-  const [snapshot, setSnap]   = useState(null)         // { text, version, sessionId, userId }
-  const [peers, setPeers]     = useState([])           // Presence[] (excluding self)
+export function useCollab(documentId, userName, userId, editorRef, monacoRef) {
+  const [status,   setStatus] = useState('connecting') // 'connecting' | 'open' | 'closed' | 'error'
+  const [snapshot, setSnap]   = useState(null)         // { text, version, sessionId, userId, role }
+  const [peers,    setPeers]  = useState([])           // Presence[] (excluding self)
+  const [role,     setRole]   = useState(null)         // 'owner' | 'editor' | 'observer' | null
 
-  const wsRef           = useRef(null)
-  const sessionIdRef    = useRef(null)
-  const versionRef      = useRef(0)
-  const applyingRemote  = useRef(false) // suppresses the change listener while we mutate
-  const peersRef        = useRef(new Map()) // sessionId -> Presence (excluding self)
-  const inFlightRef     = useRef(false)     // true while an edit waits for its `applied` ack
-  const pendingOpsRef   = useRef([])        // ops produced by Monaco while one was in flight
+  const wsRef          = useRef(null)
+  const sessionIdRef   = useRef(null)
+  const versionRef     = useRef(0)
+  const applyingRemote = useRef(false) // suppresses the change listener while we mutate
+  const peersRef       = useRef(new Map()) // sessionId -> Presence (excluding self)
+  const inFlightRef    = useRef(false)     // true while an edit waits for its `applied` ack
+  const pendingOpsRef  = useRef([])        // ops produced by Monaco while one was in flight
 
   /** If nothing is in flight and the queue is non-empty, send the next op and mark
    *  the slot busy. Called both on enqueue and on receiving our own `applied` ack. */
@@ -58,7 +51,7 @@ export function useCollab(documentId, userName, editorRef, monacoRef) {
 
   useEffect(() => {
     if (!documentId) return undefined
-    const ws = new WebSocket(wsUrl(documentId, userName))
+    const ws = new WebSocket(wsUrl(documentId, userName, userId))
     wsRef.current = ws
 
     ws.addEventListener('open',  () => setStatus('open'))
@@ -77,7 +70,9 @@ export function useCollab(documentId, userName, editorRef, monacoRef) {
             version:   msg.version,
             sessionId: msg.sessionId,
             userId:    msg.userId,
+            role:      msg.role,
           })
+          setRole(msg.role)
           // The snapshot lists peers present at handshake time. Our own session is
           // never in `peers`, but be defensive in case the server ever adds it.
           const fresh = new Map()
@@ -138,7 +133,7 @@ export function useCollab(documentId, userName, editorRef, monacoRef) {
       // Use 1000 (normal closure) so the server-side finalize doesn't log it as abnormal.
       try { ws.close(1000) } catch { /* already closed */ }
     }
-  }, [documentId, userName, editorRef, monacoRef])
+  }, [documentId, userName, userId, editorRef, monacoRef])
 
   /** Forward Monaco change events. Each event can carry several disjoint edits; we
    *  serialise them in offset order (highest first) so each op's positions are still
@@ -173,6 +168,7 @@ export function useCollab(documentId, userName, editorRef, monacoRef) {
     status,
     snapshot,
     peers,
+    role,
     sessionId: sessionIdRef.current,
     applyingRemote, // ref — Editor reads it to suppress its own change emit
     sendChanges,

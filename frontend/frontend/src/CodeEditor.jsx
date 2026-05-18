@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Editor from '@monaco-editor/react'
 import { useCollab } from './useCollab.js'
+import PermissionsPanel from './PermissionsPanel.jsx'
 
 const LANGUAGES = ['plaintext', 'javascript', 'typescript', 'python', 'scala', 'css', 'html', 'json']
 
@@ -24,15 +25,21 @@ function colourFor(sessionId) {
  *      is known and we'd never reconcile.
  *   2. We inject per-peer cursor decorations via a dynamic `<style>` tag — Monaco's
  *      decoration API only takes a class name, so the colour has to come from CSS.
+ *   3. Observers get a read-only Monaco instance — the server also rejects their edits,
+ *      so this is defence-in-depth rather than the sole guard.
  */
-export default function CodeEditor({ document: doc, userName, onBack }) {
-  const editorRef = useRef(null)
-  const monacoRef = useRef(null)
+export default function CodeEditor({ document: doc, userName, userId, onBack }) {
+  const editorRef      = useRef(null)
+  const monacoRef      = useRef(null)
   const decorationsRef = useRef(null) // monaco IEditorDecorationsCollection
-  const [language, setLanguage] = useState('plaintext')
+  const [language, setLanguage]     = useState('plaintext')
+  const [showPerms, setShowPerms]   = useState(false)
 
-  const { status, snapshot, peers, sessionId, applyingRemote, sendChanges, sendCursor } =
-    useCollab(doc?.id, userName, editorRef, monacoRef)
+  const { status, snapshot, peers, role, sessionId, applyingRemote, sendChanges, sendCursor } =
+    useCollab(doc?.id, userName, userId, editorRef, monacoRef)
+
+  const isObserver = role === 'observer'
+  const isOwner    = role === 'owner'
 
   // Push peer-colour CSS into the document once. The selectors are scoped by sessionId
   // so removing a peer doesn't leak styles into the next session that takes that slot.
@@ -42,7 +49,6 @@ export default function CodeEditor({ document: doc, userName, onBack }) {
     style.dataset.peers = 'true'
     style.textContent = peers.map((p) => {
       const c = colourFor(p.sessionId)
-      // The class names match those we set in `decorationsRef` below.
       return `
         .peer-cursor-${cssId(p.sessionId)} {
           border-left: 2px solid ${c};
@@ -66,7 +72,7 @@ export default function CodeEditor({ document: doc, userName, onBack }) {
     if (!model) return
 
     const decos = peers.flatMap((p) => {
-      const len = model.getValueLength()
+      const len        = model.getValueLength()
       const safeCursor = Math.max(0, Math.min(p.cursor, len))
       const safeSel    = Math.max(0, Math.min(p.selectionEnd, len))
       const cursorPos  = model.getPositionAt(safeCursor)
@@ -75,8 +81,8 @@ export default function CodeEditor({ document: doc, userName, onBack }) {
         options: { className: `peer-cursor-${cssId(p.sessionId)}`, stickiness: 1, hoverMessage: { value: p.displayName } },
       }]
       if (safeSel !== safeCursor) {
-        const a = Math.min(safeCursor, safeSel)
-        const b = Math.max(safeCursor, safeSel)
+        const a     = Math.min(safeCursor, safeSel)
+        const b     = Math.max(safeCursor, safeSel)
         const start = model.getPositionAt(a)
         const end   = model.getPositionAt(b)
         out.push({
@@ -127,32 +133,66 @@ export default function CodeEditor({ document: doc, userName, onBack }) {
         <button onClick={onBack} title="Back to document list">← Documents</button>
         <strong>{doc.title}</strong>
         <span className={`status status-${status}`}>{status}</span>
+        {role && <span className={`role-badge role-${role}`}>{role}</span>}
         <select value={language} onChange={(e) => setLanguage(e.target.value)}>
           {LANGUAGES.map((l) => <option key={l}>{l}</option>)}
         </select>
-        <button onClick={formatCode}>Format</button>
+        {!isObserver && <button onClick={formatCode}>Format</button>}
+        <button
+          onClick={() => setShowPerms(v => !v)}
+          title="Document permissions"
+          style={{ marginLeft: 'auto' }}
+        >
+          Permissions
+        </button>
         <div className="peers">
           {peers.map((p) => (
             <span key={p.sessionId} className="peer-chip" style={{ borderColor: colourFor(p.sessionId) }}>
               {p.displayName}
+              {p.role === 'observer' && <span className="peer-role-hint"> 👁</span>}
             </span>
           ))}
           {sessionId && <span className="peer-chip self">{userName} (you)</span>}
         </div>
       </div>
 
-      {ready ? (
-        <Editor
-          height="calc(100vh - 48px)"
-          language={language}
-          theme="vs-dark"
-          defaultValue={snapshot.text}
-          onMount={handleMount}
-          options={{ fontSize: 14, wordWrap: 'on', automaticLayout: true }}
-        />
-      ) : (
-        <div className="loading">Connecting…</div>
+      {isObserver && (
+        <div className="observer-banner">
+          You have read-only access to this document.
+        </div>
       )}
+
+      <div className="editor-main">
+        <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+          {ready ? (
+            <Editor
+              height="100%"
+              language={language}
+              theme="vs-dark"
+              defaultValue={snapshot.text}
+              onMount={handleMount}
+              options={{
+                fontSize: 14,
+                wordWrap: 'on',
+                automaticLayout: true,
+                readOnly: isObserver,
+              }}
+            />
+          ) : (
+            <div className="loading">Connecting…</div>
+          )}
+        </div>
+
+        {showPerms && (
+          <PermissionsPanel
+            documentId={doc.id}
+            userId={userId}
+            role={role}
+            peers={peers}
+            onClose={() => setShowPerms(false)}
+          />
+        )}
+      </div>
     </div>
   )
 }

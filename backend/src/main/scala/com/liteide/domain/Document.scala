@@ -3,7 +3,7 @@ package com.liteide.domain
 import io.circe.{Decoder, Encoder}
 import io.circe.generic.semiauto.*
 
-import com.liteide.domain.Ids.DocumentId
+import com.liteide.domain.Ids.{DocumentId, UserId}
 
 /** Metadata + current snapshot for a collaboratively-edited document.
   *
@@ -16,11 +16,12 @@ final case class Document(
     title:    String,
     contents: String,
     version:  Int,
+    ownerId:  UserId,
 )
 
 object Document:
-  def empty(title: String): Document =
-    Document(DocumentId.random, title, "", 0)
+  def empty(title: String, ownerId: UserId): Document =
+    Document(DocumentId.random, title, "", 0, ownerId)
 
   given Encoder[Document] = deriveEncoder[Document]
   given Decoder[Document] = deriveDecoder[Document]
