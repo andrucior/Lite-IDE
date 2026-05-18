@@ -6,7 +6,7 @@ import cats.syntax.all.*
 import fs2.Stream
 import fs2.concurrent.Topic
 
-import com.liteide.domain.{Op, Presence}
+import com.liteide.domain.{HistoryEntry, Op, Presence}
 import com.liteide.domain.Ids.{DocumentId, SessionId, UserId}
 import com.liteide.protocol.Wire.ServerMsg
 
@@ -45,12 +45,15 @@ trait DocumentRoom[F[_]]:
   /** Current snapshot — used for REST GET. */
   def snapshot: F[(Int, String)]
 
+  /** Full edit log with author metadata — used for the history REST endpoint. */
+  def historyEntries: F[List[HistoryEntry]]
+
   /** Number of currently-connected sessions. */
   def peerCount: F[Int]
 
 object DocumentRoom:
 
-  private final case class State(text: String, version: Int, history: Vector[Op])
+  private final case class State(text: String, version: Int, history: Vector[HistoryEntry])
 
   /** Build a fresh room seeded with the given text (version 0, empty history). */
   def make[F[_]: Concurrent](
@@ -134,7 +137,7 @@ object DocumentRoom:
               // filter noop products of OT here: keeping them in history preserves the
               // invariant `history.length == version`, and the author still gets an
               // `Applied` to ack the edit they submitted.
-              val intervening = s.history.drop(baseVersion)
+              val intervening = s.history.drop(baseVersion).map(_.op)
               val transformed = intervening.foldLeft(List(op)) { (acc, b) =>
                 acc.flatMap(a => Op.transform(a, b))
               }
@@ -144,13 +147,21 @@ object DocumentRoom:
                 case Left(reason) =>
                   (Left(reason): Either[String, Int]).pure[F]
                 case Right(newText) =>
-                  val newVersion = s.version + transformed.size
-                  val newHistory = s.history ++ transformed
-                  val newState   = State(newText, newVersion, newHistory)
-                  state.set(newState) *>
-                    topic
-                      .publish1(ServerMsg.Applied(newVersion, transformed, authorSessionId))
-                      .as(Right(newVersion): Either[String, Int])
+                  // Look up the author's display name from presence for the history log.
+                  presence.get.flatMap { presMap =>
+                    val displayName = presMap.get(authorSessionId).map(_.displayName).getOrElse("unknown")
+                    val now         = System.currentTimeMillis()
+                    val newEntries  = transformed.zipWithIndex.map { (o, i) =>
+                      HistoryEntry(o, authorSessionId, displayName, now, s.version + i + 1)
+                    }
+                    val newVersion = s.version + transformed.size
+                    val newHistory = s.history ++ newEntries
+                    val newState   = State(newText, newVersion, newHistory)
+                    state.set(newState) *>
+                      topic
+                        .publish1(ServerMsg.Applied(newVersion, transformed, authorSessionId))
+                        .as(Right(newVersion): Either[String, Int])
+                  }
           }
         }
 
@@ -179,6 +190,9 @@ object DocumentRoom:
 
       def snapshot: F[(Int, String)] =
         state.get.map(s => (s.version, s.text))
+
+      def historyEntries: F[List[HistoryEntry]] =
+        state.get.map(_.history.toList)
 
       def peerCount: F[Int] =
         presence.get.map(_.size)
