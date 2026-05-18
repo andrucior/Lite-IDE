@@ -48,12 +48,27 @@ trait DocumentRoom[F[_]]:
   /** Full edit log with author metadata — used for the history REST endpoint. */
   def historyEntries: F[List[HistoryEntry]]
 
+  /** Reconstruct the document text at any past version for diff computation.
+   *  Returns None if targetVersion is outside [0, currentVersion].
+   */
+  def textAtVersion(targetVersion: Int): F[Option[String]]
+
   /** Number of currently-connected sessions. */
   def peerCount: F[Int]
 
 object DocumentRoom:
 
-  private final case class State(text: String, version: Int, history: Vector[HistoryEntry])
+  // A full text snapshot is stored every N versions so that textAtVersion never
+  // needs to replay more than N ops. Lower = faster reads, higher memory use.
+  private val SnapshotInterval = 100
+
+  private final case class State(
+      initialText: String,
+      text:        String,
+      version:     Int,
+      history:     Vector[HistoryEntry],
+      snapshots:   Map[Int, String],  // sparse: version -> text at that version
+  )
 
   /** Build a fresh room seeded with the given text (version 0, empty history). */
   def make[F[_]: Concurrent](
@@ -61,7 +76,7 @@ object DocumentRoom:
       initialText: String,
   ): F[DocumentRoom[F]] =
     for
-      state    <- Ref.of[F, State](State(initialText, 0, Vector.empty))
+      state    <- Ref.of[F, State](State(initialText, initialText, 0, Vector.empty, Map(0 -> initialText)))
       presence <- Ref.of[F, Map[SessionId, Presence]](Map.empty)
       topic    <- Topic[F, ServerMsg]
       mutex    <- Mutex[F]
@@ -154,9 +169,12 @@ object DocumentRoom:
                     val newEntries  = transformed.zipWithIndex.map { (o, i) =>
                       HistoryEntry(o, authorSessionId, displayName, now, s.version + i + 1)
                     }
-                    val newVersion = s.version + transformed.size
-                    val newHistory = s.history ++ newEntries
-                    val newState   = State(newText, newVersion, newHistory)
+                    val newVersion   = s.version + transformed.size
+                    val newHistory   = s.history ++ newEntries
+                    val newSnapshots =
+                      if newVersion % SnapshotInterval == 0 then s.snapshots + (newVersion -> newText)
+                      else s.snapshots
+                    val newState = State(s.initialText, newText, newVersion, newHistory, newSnapshots)
                     state.set(newState) *>
                       topic
                         .publish1(ServerMsg.Applied(newVersion, transformed, authorSessionId))
@@ -193,6 +211,15 @@ object DocumentRoom:
 
       def historyEntries: F[List[HistoryEntry]] =
         state.get.map(_.history.toList)
+
+      def textAtVersion(targetVersion: Int): F[Option[String]] =
+        state.get.map { s =>
+          if targetVersion < 0 || targetVersion > s.version then None
+          else if targetVersion == s.version then Some(s.text)
+          else
+            val (snapVersion, snapText) = s.snapshots.filter(_._1 <= targetVersion).maxBy(_._1)
+            Op.applyAll(snapText, s.history.slice(snapVersion, targetVersion).map(_.op).toList).toOption
+        }
 
       def peerCount: F[Int] =
         presence.get.map(_.size)

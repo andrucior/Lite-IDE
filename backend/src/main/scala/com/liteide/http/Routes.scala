@@ -66,6 +66,9 @@ object Routes:
 
     given EntityDecoder[F, CreateDocumentRequest] = jsonOf[F, CreateDocumentRequest]
 
+    object FromV extends QueryParamDecoderMatcher[Int]("from")
+    object ToV   extends QueryParamDecoderMatcher[Int]("to")
+
     HttpRoutes.of[F] {
       // List ----------------------------------------------------------------
       case GET -> Root =>
@@ -83,6 +86,22 @@ object Routes:
             Created(d.asJson)
           }
         }
+
+      // Get history diff -------------------------------------------------
+      case GET -> Root / idStr / "history" / "diff" :? FromV(from) +& ToV(to) =>
+        DocumentId.fromString(idStr) match
+          case None => NotFound(Json.obj("error" -> "invalid id".asJson))
+          case Some(id) =>
+            rooms.get(id).flatMap {
+              case None => NotFound(Json.obj("error" -> "room not active".asJson))
+              case Some(room) =>
+                (room.textAtVersion(from - 1), room.textAtVersion(to)).tupled.flatMap {
+                  case (Some(before), Some(after)) =>
+                    Ok(Json.obj("before" -> before.asJson, "after" -> after.asJson))
+                  case _ =>
+                    UnprocessableEntity(Json.obj("error" -> "version out of range".asJson))
+                }
+            }
 
       // Get history ---------------------------------------------------------
       case GET -> Root / idStr / "history" =>

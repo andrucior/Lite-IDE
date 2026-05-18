@@ -44,6 +44,12 @@ export async function getDocumentHistory(id) {
   return r.json()
 }
 
+export async function getHistoryDiff(id, fromVersion, toVersion) {
+  const r = await fetch(`/api/documents/${id}/history/diff?from=${fromVersion}&to=${toVersion}`)
+  if (!r.ok) throw new Error(`getHistoryDiff: HTTP ${r.status}`)
+  return r.json()
+}
+
 /** Build the WebSocket URL for a document. We compute it against `window.location` so it
  *  works identically in dev (Vite proxy) and prod (same origin reverse proxy). */
 export function wsUrl(documentId, userName) {
