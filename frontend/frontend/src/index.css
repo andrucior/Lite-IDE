@@ -175,6 +175,12 @@ button.active {
   background: var(--bg-2);
   border-left: 1px solid var(--border);
   overflow: hidden;
+  animation: slide-in 0.18s ease-out;
+}
+
+@keyframes slide-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
 }
 
 .history-header {
