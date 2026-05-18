@@ -44,7 +44,6 @@ export async function getDocumentHistory(id) {
   return r.json()
 }
 
-
 /** Build the WebSocket URL for a document. We compute it against `window.location` so it
  *  works identically in dev (Vite proxy) and prod (same origin reverse proxy). */
 export function wsUrl(documentId, userName) {
