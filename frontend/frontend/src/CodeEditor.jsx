@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Editor from '@monaco-editor/react'
 import { useCollab } from './useCollab.js'
+import HistoryPanel from './HistoryPanel.jsx'
 
 const LANGUAGES = ['plaintext', 'javascript', 'typescript', 'python', 'scala', 'css', 'html', 'json']
 
@@ -28,8 +29,9 @@ function colourFor(sessionId) {
 export default function CodeEditor({ document: doc, userName, onBack }) {
   const editorRef = useRef(null)
   const monacoRef = useRef(null)
-  const decorationsRef = useRef(null) // monaco IEditorDecorationsCollection
+  const decorationsRef = useRef(null)
   const [language, setLanguage] = useState('plaintext')
+  const [showHistory, setShowHistory] = useState(false)
 
   const { status, snapshot, peers, sessionId, applyingRemote, sendChanges, sendCursor } =
     useCollab(doc?.id, userName, editorRef, monacoRef)
@@ -131,6 +133,11 @@ export default function CodeEditor({ document: doc, userName, onBack }) {
           {LANGUAGES.map((l) => <option key={l}>{l}</option>)}
         </select>
         <button onClick={formatCode}>Format</button>
+        <button
+          onClick={() => setShowHistory(v => !v)}
+          className={showHistory ? 'active' : ''}
+          title="Toggle edit history"
+        >History</button>
         <div className="peers">
           {peers.map((p) => (
             <span key={p.sessionId} className="peer-chip" style={{ borderColor: colourFor(p.sessionId) }}>
@@ -142,14 +149,19 @@ export default function CodeEditor({ document: doc, userName, onBack }) {
       </div>
 
       {ready ? (
-        <Editor
-          height="calc(100vh - 48px)"
-          language={language}
-          theme="vs-dark"
-          defaultValue={snapshot.text}
-          onMount={handleMount}
-          options={{ fontSize: 14, wordWrap: 'on', automaticLayout: true }}
-        />
+        <div className="editor-area">
+          <Editor
+            height="calc(100vh - 48px)"
+            language={language}
+            theme="vs-dark"
+            defaultValue={snapshot.text}
+            onMount={handleMount}
+            options={{ fontSize: 14, wordWrap: 'on', automaticLayout: true }}
+          />
+          {showHistory && (
+            <HistoryPanel documentId={doc.id} onClose={() => setShowHistory(false)} />
+          )}
+        </div>
       ) : (
         <div className="loading">Connecting…</div>
       )}

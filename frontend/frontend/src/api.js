@@ -38,6 +38,13 @@ export async function getDocument(id) {
   return r.json()
 }
 
+export async function getDocumentHistory(id) {
+  const r = await fetch(`/api/documents/${id}/history`)
+  if (!r.ok) throw new Error(`getDocumentHistory: HTTP ${r.status}`)
+  return r.json()
+}
+
+
 /** Build the WebSocket URL for a document. We compute it against `window.location` so it
  *  works identically in dev (Vite proxy) and prod (same origin reverse proxy). */
 export function wsUrl(documentId, userName) {

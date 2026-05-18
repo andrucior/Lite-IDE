@@ -146,3 +146,105 @@ button:disabled {
 .status-connecting { color: #d19a66; }
 .status-closed,
 .status-error      { color: var(--error); }
+
+button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* -------------------------------------------------------------- editor area */
+
+.editor-area {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.editor-area > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* -------------------------------------------------------------- history panel */
+
+.history-panel {
+  width: 300px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-2);
+  border-left: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.history-header-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.history-header-actions button {
+  padding: 2px 6px;
+  font-size: 13px;
+}
+
+.history-body {
+  overflow-y: auto;
+  flex: 1;
+  padding: 8px 0;
+}
+
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.history-entry {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.history-entry:last-child {
+  border-bottom: none;
+}
+
+.history-meta {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.history-author {
+  font-weight: 500;
+  color: var(--accent);
+}
+
+.history-time,
+.history-version {
+  font-size: 11px;
+}
+
+.op-insert { color: #98c379; }
+.op-delete { color: var(--error); }
+
+.op-insert code,
+.op-delete code {
+  font-family: 'Menlo', 'Consolas', monospace;
+  background: rgba(255,255,255,0.06);
+  padding: 0 3px;
+  border-radius: 2px;
+}
+
