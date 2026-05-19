@@ -1,9 +1,10 @@
 package com.liteide.service
 
 import cats.effect.kernel.{Concurrent, Ref}
-import cats.effect.std.{Mutex, Topic}
+import cats.effect.std.Mutex
 import cats.syntax.all.*
 import fs2.Stream
+import fs2.concurrent.Topic
 
 import com.liteide.domain.{Op, Presence}
 import com.liteide.domain.Ids.{DocumentId, SessionId, UserId}
@@ -91,7 +92,11 @@ object DocumentRoom:
             peers <- presence.get
             me = Presence(sessionId, userId, displayName, cursor = 0, selectionEnd = 0)
             _ <- presence.update(_.updated(sessionId, me))
-            snap = ServerMsg.Snapshot(
+            // Explicit type ascription is required: without it, the for-comprehension
+            // widens `snap` to the parent `ServerMsg` type (due to the later
+            // `topic.publish1` step) and the yielded tuple no longer matches the
+            // declared return type `(ServerMsg.Snapshot, Stream[F, ServerMsg])`.
+            snap: ServerMsg.Snapshot = ServerMsg.Snapshot(
               documentId = docId,
               sessionId = sessionId,
               userId = userId,
@@ -125,8 +130,16 @@ object DocumentRoom:
                 Int
               ])
                 .pure[F]
+            else if Op.isNoop(op) then
+              // Drop trivial / empty edits before they reach OT so we don't bump the version
+              // number for a change nobody can see. The client still observes its own state
+              // is consistent; if it really needs an ack it can issue a real edit.
+              (Right(s.version): Either[String, Int]).pure[F]
             else
-              // Transform `op` against every op applied after `baseVersion`.
+              // Transform `op` against every op applied after `baseVersion`. We do NOT
+              // filter noop products of OT here: keeping them in history preserves the
+              // invariant `history.length == version`, and the author still gets an
+              // `Applied` to ack the edit they submitted.
               val intervening = s.history.drop(baseVersion)
               val transformed = intervening.foldLeft(List(op)) { (acc, b) =>
                 acc.flatMap(a => Op.transform(a, b))

@@ -3,11 +3,42 @@
 Scala 3 / Cats Effect / http4s server for the collaborative editor. Runs on `:8080`
 by default (override with `HTTP_HOST` / `HTTP_PORT`).
 
+> New to the project? Read [`../GETTING_STARTED.md`](../GETTING_STARTED.md) first — it
+> walks through running the backend and the frontend together.
+
+## Prerequisites
+
+- JDK 17+
+- sbt 1.10+
+
+On macOS: `brew install --cask temurin@21 && brew install sbt`.
+
+## Commands
+
 ```bash
-sbt run                # boot the server (seeds one demo doc titled "welcome")
-sbt test               # OT convergence tests
-sbt ~compile           # watch mode
+sbt run                          # boot the server (seeds one demo doc titled "welcome")
+sbt ~compile                     # watch-compile on save
+sbt test                         # run every test
+sbt "testOnly *OpSpec"           # one test class
+sbt "testOnly *DocumentRoomSpec" # one test class
+sbt ~test                        # watch-test
+HTTP_PORT=9090 sbt run           # override the port
 ```
+
+The first `sbt` invocation downloads the dependency tree into `~/.cache/coursier` and
+`~/.sbt`; subsequent runs reuse the cache.
+
+## Test suite
+
+| File                                       | What it pins                                                  |
+| ------------------------------------------ | ------------------------------------------------------------- |
+| `domain/OpSpec.scala`                      | OT convergence — left/right application order must agree      |
+| `domain/OpApplySpec.scala`                 | range-check semantics of `Op.applyTo` and `Op.isNoop`         |
+| `protocol/WireSpec.scala`                  | exact JSON shape of every client/server frame                 |
+| `service/DocumentRoomSpec.scala`           | join snapshot, edit ack, cursor broadcast, peer leave         |
+
+If `WireSpec` breaks, the React client's switch in `useCollab.js` will break too —
+both sides agree on these literal field names.
 
 ## Architecture choices
 

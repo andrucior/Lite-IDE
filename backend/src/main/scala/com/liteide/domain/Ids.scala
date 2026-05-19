@@ -18,8 +18,8 @@ object Ids:
     extension (id: DocumentId) def value: UUID = id
 
     given CanEqual[DocumentId, DocumentId] = CanEqual.derived
-    given Encoder[DocumentId] = Encoder[UUID].contramap(_.value)
-    given Decoder[DocumentId] = Decoder[UUID].map(DocumentId.apply)
+    given Encoder[DocumentId] = Encoder.encodeUUID.contramap(_.value)
+    given Decoder[DocumentId] = Decoder.decodeUUID.map(DocumentId.apply)
 
   opaque type UserId = UUID
   object UserId:
@@ -28,8 +28,8 @@ object Ids:
     extension (id: UserId) def value: UUID = id
 
     given CanEqual[UserId, UserId] = CanEqual.derived
-    given Encoder[UserId] = Encoder[UUID].contramap(_.value)
-    given Decoder[UserId] = Decoder[UUID].map(UserId.apply)
+    given Encoder[UserId] = Encoder.encodeUUID.contramap(_.value)
+    given Decoder[UserId] = Decoder.decodeUUID.map(UserId.apply)
 
   opaque type SessionId = UUID
   object SessionId:
@@ -38,5 +38,5 @@ object Ids:
     extension (id: SessionId) def value: UUID = id
 
     given CanEqual[SessionId, SessionId] = CanEqual.derived
-    given Encoder[SessionId] = Encoder[UUID].contramap(_.value)
-    given Decoder[SessionId] = Decoder[UUID].map(SessionId.apply)
+    given Encoder[SessionId] = Encoder.encodeUUID.contramap(_.value)
+    given Decoder[SessionId] = Decoder.decodeUUID.map(SessionId.apply)

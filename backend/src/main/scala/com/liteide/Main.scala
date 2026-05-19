@@ -1,7 +1,6 @@
 package com.liteide
 
 import cats.effect.{ExitCode, IO, IOApp}
-import cats.syntax.all.*
 
 import com.liteide.config.AppConfig
 import com.liteide.http.HttpServer
