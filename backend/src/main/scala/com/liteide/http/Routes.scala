@@ -107,12 +107,11 @@ object Routes:
           case Some(id) =>
             docs.listPermissions(id).flatMap {
               case None => NotFound(Json.obj("error" -> "no such document".asJson))
-              case Some((ownerId, perms)) =>
+              case Some((_, perms)) =>
                 val entries = perms.toList.map { case (uid, role) =>
                   Json.obj("userId" -> uid.asJson, "role" -> role.asJson)
                 }
                 Ok(Json.obj(
-                  "ownerId"     -> ownerId.asJson,
                   "permissions" -> entries.asJson,
                 ))
             }
