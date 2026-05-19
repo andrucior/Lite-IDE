@@ -23,8 +23,11 @@ object Ids:
 
   opaque type UserId = UUID
   object UserId:
-    def random: UserId = UUID.randomUUID()
+    def random: UserId            = UUID.randomUUID()
     def apply(uuid: UUID): UserId = uuid
+    def fromString(s: String): Option[UserId] =
+      try Some(UUID.fromString(s))
+      catch case _: IllegalArgumentException => None
     extension (id: UserId) def value: UUID = id
 
     given CanEqual[UserId, UserId] = CanEqual.derived

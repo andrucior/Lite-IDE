@@ -4,7 +4,7 @@ import io.circe.parser.{decode, parse}
 import io.circe.syntax.*
 import munit.FunSuite
 
-import com.liteide.domain.{Op, Presence}
+import com.liteide.domain.{Op, Presence, Role}
 import com.liteide.domain.Ids.{DocumentId, SessionId, UserId}
 import com.liteide.protocol.Wire.{ClientMsg, ServerMsg}
 
@@ -44,8 +44,8 @@ final class WireSpec extends FunSuite:
     val sid = SessionId(UUID.fromString("00000000-0000-0000-0000-000000000002"))
     val uid = UserId(UUID.fromString("00000000-0000-0000-0000-000000000003"))
     val snap: ServerMsg =
-      ServerMsg.Snapshot(docId, sid, uid, version = 7, text = "hi", peers = Nil)
-    val j = snap.asJson
+      ServerMsg.Snapshot(docId, sid, uid, version = 7, text = "hi", peers = Nil, role = Role.Editor)
+    val j     = snap.asJson
     assertEquals(j.hcursor.downField("type").as[String], Right("snapshot"))
     assertEquals(j.hcursor.downField("version").as[Int], Right(7))
     assertEquals(j.hcursor.downField("text").as[String], Right("hi"))
@@ -77,7 +77,7 @@ final class WireSpec extends FunSuite:
   test("encode peer joined / peer left round-trip through parse"):
     val sid = SessionId(UUID.randomUUID())
     val uid = UserId(UUID.randomUUID())
-    val p = Presence(sid, uid, "bob", cursor = 0, selectionEnd = 0)
+    val p   = Presence(sid, uid, "bob", cursor = 0, selectionEnd = 0, role = Role.Editor)
     val m1: ServerMsg = ServerMsg.PeerJoined(p)
     val m2: ServerMsg = ServerMsg.PeerLeft(sid)
     val j1 = m1.asJson.noSpaces

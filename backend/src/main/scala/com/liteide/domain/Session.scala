@@ -19,13 +19,18 @@ object Session:
   given Encoder[Session] = deriveEncoder[Session]
   given Decoder[Session] = deriveDecoder[Session]
 
-/** Presence info broadcast to other participants in a document. */
+/** Presence info broadcast to other participants in a document.
+  *
+  * `role` is included so clients can visually distinguish observers from editors
+  * and owners without a separate API call.
+  */
 final case class Presence(
-    sessionId: SessionId,
-    userId: UserId,
-    displayName: String,
-    cursor: Int,
-    selectionEnd: Int
+    sessionId:    SessionId,
+    userId:       UserId,
+    displayName:  String,
+    cursor:       Int,
+    selectionEnd: Int,
+    role:         Role,
 )
 
 object Presence:
