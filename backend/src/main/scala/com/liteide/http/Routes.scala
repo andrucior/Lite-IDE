@@ -29,6 +29,8 @@ import com.liteide.ws.CollabSocket
   */
 object Routes:
 
+  private val InvalidId = "invalid id"
+
   private final case class CreateDocumentRequest(
       title:         String,
       contents:      Option[String],
@@ -103,7 +105,7 @@ object Routes:
       // List permissions ----------------------------------------------------
       case GET -> Root / idStr / "permissions" =>
         DocumentId.fromString(idStr) match
-          case None => NotFound(Json.obj("error" -> "invalid id".asJson))
+          case None => NotFound(Json.obj("error" -> InvalidId.asJson))
           case Some(id) =>
             docs.listPermissions(id).flatMap {
               case None => NotFound(Json.obj("error" -> "no such document".asJson))
@@ -120,7 +122,7 @@ object Routes:
       // Set permission (owner only) -----------------------------------------
       case req @ POST -> Root / idStr / "permissions" =>
         DocumentId.fromString(idStr) match
-          case None => NotFound(Json.obj("error" -> "invalid id".asJson))
+          case None => NotFound(Json.obj("error" -> InvalidId.asJson))
           case Some(docId) =>
             req.as[SetPermissionRequest].flatMap { body =>
               (UserId.fromString(body.actingUserId), UserId.fromString(body.userId)) match
@@ -136,7 +138,7 @@ object Routes:
       // Remove permission (owner only) --------------------------------------
       case DELETE -> Root / idStr / "permissions" / targetIdStr :? ActingUserQ(actingStr) =>
         DocumentId.fromString(idStr) match
-          case None => NotFound(Json.obj("error" -> "invalid id".asJson))
+          case None => NotFound(Json.obj("error" -> InvalidId.asJson))
           case Some(docId) =>
             (UserId.fromString(actingStr), UserId.fromString(targetIdStr)) match
               case (Some(actingId), Some(targetId)) =>
@@ -150,7 +152,7 @@ object Routes:
       // Get one -------------------------------------------------------------
       case GET -> Root / idStr =>
         DocumentId.fromString(idStr) match
-          case None => NotFound(Json.obj("error" -> "invalid id".asJson))
+          case None => NotFound(Json.obj("error" -> InvalidId.asJson))
           case Some(id) =>
             docs.get(id).flatMap {
               case None    => NotFound(Json.obj("error" -> "no such document".asJson))

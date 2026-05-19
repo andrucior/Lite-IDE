@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { wsUrl } from './api.js'
+import { wsUrl, sanitizeUserName } from './api.js'
+
+const DOCUMENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
  * Collaboration channel for one document.
@@ -51,7 +53,9 @@ export function useCollab(documentId, userName, userId, editorRef, monacoRef) {
 
   useEffect(() => {
     if (!documentId) return undefined
-    const ws = new WebSocket(wsUrl(documentId, userName, userId))
+    if (!DOCUMENT_ID_RE.test(documentId)) return undefined
+    const safeUserName = sanitizeUserName(userName ?? '')
+    const ws = new WebSocket(wsUrl(documentId, safeUserName, userId))
     wsRef.current = ws
 
     ws.addEventListener('open',  () => setStatus('open'))
