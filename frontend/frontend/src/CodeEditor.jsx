@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import PropTypes from 'prop-types'
 import Editor from '@monaco-editor/react'
 import { useCollab } from './useCollab.js'
 import PermissionsPanel from './PermissionsPanel.jsx'
@@ -39,7 +40,6 @@ export default function CodeEditor({ document: doc, userName, userId, onBack }) 
     useCollab(doc?.id, userName, userId, editorRef, monacoRef)
 
   const isObserver = role === 'observer'
-  const isOwner    = role === 'owner'
 
   // Push peer-colour CSS into the document once. The selectors are scoped by sessionId
   // so removing a peer doesn't leak styles into the next session that takes that slot.
@@ -195,6 +195,16 @@ export default function CodeEditor({ document: doc, userName, userId, onBack }) 
       </div>
     </div>
   )
+}
+
+CodeEditor.propTypes = {
+  document: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    title: PropTypes.string.isRequired,
+  }).isRequired,
+  userName: PropTypes.string.isRequired,
+  userId: PropTypes.string.isRequired,
+  onBack: PropTypes.func.isRequired,
 }
 
 /** Sanitise a UUID into something we can stick into a CSS class. */

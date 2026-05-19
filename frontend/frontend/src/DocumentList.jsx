@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import PropTypes from 'prop-types'
 import { createDocument, listDocuments } from './api.js'
 
 /** Lobby screen: pick a document or create a new one. */
@@ -73,4 +74,9 @@ export default function DocumentList({ onOpen, userId }) {
       )}
     </div>
   )
+}
+
+DocumentList.propTypes = {
+  onOpen: PropTypes.func.isRequired,
+  userId: PropTypes.string.isRequired,
 }

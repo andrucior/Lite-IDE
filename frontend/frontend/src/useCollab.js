@@ -26,10 +26,10 @@ const DOCUMENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
  *     so our own change-listener doesn't try to re-emit it) and advance `versionRef`.
  */
 export function useCollab(documentId, userName, userId, editorRef, monacoRef) {
-  const [status,   setStatus] = useState('connecting') // 'connecting' | 'open' | 'closed' | 'error'
-  const [snapshot, setSnap]   = useState(null)         // { text, version, sessionId, userId, role }
-  const [peers,    setPeers]  = useState([])           // Presence[] (excluding self)
-  const [role,     setRole]   = useState(null)         // 'owner' | 'editor' | 'observer' | null
+  const [status,   setStatus]   = useState('connecting')
+  const [snapshot, setSnapshot] = useState(null)
+  const [peers,    setPeers]    = useState([])
+  const [role,     setRole]     = useState(null)
 
   const wsRef          = useRef(null)
   const sessionIdRef   = useRef(null)
@@ -69,7 +69,7 @@ export function useCollab(documentId, userName, userId, editorRef, monacoRef) {
         case 'snapshot': {
           sessionIdRef.current = msg.sessionId
           versionRef.current   = msg.version
-          setSnap({
+          setSnapshot({
             text:      msg.text,
             version:   msg.version,
             sessionId: msg.sessionId,

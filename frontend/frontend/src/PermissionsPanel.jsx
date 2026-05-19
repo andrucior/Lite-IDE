@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import PropTypes from 'prop-types'
 import { getPermissions, removePermission, setPermission } from './api.js'
 
 /**
@@ -65,6 +66,31 @@ export default function PermissionsPanel({ documentId, userId, role, peers, onCl
     } finally {
       setSaving(false)
     }
+  }
+
+  let explicitPermsContent
+  if (perms === null) {
+    explicitPermsContent = <p className="muted">Loading…</p>
+  } else if (perms.permissions.length === 0) {
+    explicitPermsContent = <p className="muted">No restrictions set — everyone defaults to Editor.</p>
+  } else {
+    explicitPermsContent = (
+      <ul className="perms-list">
+        {perms.permissions.map(({ userId: uid, role: r }) => (
+          <li key={uid} className="perms-row">
+            <code className="perms-uid-small">{uid}</code>
+            <span className={`role-badge role-${r}`}>{r}</span>
+            <button
+              disabled={saving}
+              onClick={() => handleRemove(uid)}
+              title="Remove restriction (reverts to Editor)"
+            >
+              Remove
+            </button>
+          </li>
+        ))}
+      </ul>
+    )
   }
 
   return (
@@ -137,27 +163,7 @@ export default function PermissionsPanel({ documentId, userId, role, peers, onCl
             {/* Explicit grants */}
             <section className="perms-section">
               <h4>Explicit permissions</h4>
-              {perms === null ? (
-                <p className="muted">Loading…</p>
-              ) : perms.permissions.length === 0 ? (
-                <p className="muted">No restrictions set — everyone defaults to Editor.</p>
-              ) : (
-                <ul className="perms-list">
-                  {perms.permissions.map(({ userId: uid, role: r }) => (
-                    <li key={uid} className="perms-row">
-                      <code className="perms-uid-small">{uid}</code>
-                      <span className={`role-badge role-${r}`}>{r}</span>
-                      <button
-                        disabled={saving}
-                        onClick={() => handleRemove(uid)}
-                        title="Remove restriction (reverts to Editor)"
-                      >
-                        Remove
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              {explicitPermsContent}
             </section>
 
             {/* Add / change permission */}
@@ -183,4 +189,17 @@ export default function PermissionsPanel({ documentId, userId, role, peers, onCl
       </div>
     </div>
   )
+}
+
+PermissionsPanel.propTypes = {
+  documentId: PropTypes.string.isRequired,
+  userId: PropTypes.string.isRequired,
+  role: PropTypes.string,
+  peers: PropTypes.arrayOf(PropTypes.shape({
+    sessionId: PropTypes.string.isRequired,
+    userId: PropTypes.string.isRequired,
+    displayName: PropTypes.string.isRequired,
+    role: PropTypes.string,
+  })).isRequired,
+  onClose: PropTypes.func.isRequired,
 }
