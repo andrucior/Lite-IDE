@@ -4,7 +4,7 @@ import io.circe.parser.{decode, parse}
 import io.circe.syntax.*
 import munit.FunSuite
 
-import com.liteide.domain.{Op, Presence, Role}
+import com.liteide.domain.{HistoryEntry, Op, Presence, Role}
 import com.liteide.domain.Ids.{DocumentId, SessionId, UserId}
 import com.liteide.protocol.Wire.{ClientMsg, ServerMsg}
 
@@ -92,3 +92,15 @@ final class WireSpec extends FunSuite:
       parse(j2).toOption.flatMap(_.hcursor.downField("type").as[String].toOption),
       Some("peerLeft")
     )
+
+  test("encode HistoryEntry has the agreed field names"):
+    val sid   = SessionId(UUID.fromString("00000000-0000-0000-0000-000000000002"))
+    val entry = HistoryEntry(Op.Insert(3, "hi"), sid, "alice", timestamp = 1_000_000L, version = 5)
+    val j     = entry.asJson
+    assertEquals(j.hcursor.downField("version").as[Int],           Right(5))
+    assertEquals(j.hcursor.downField("authorDisplayName").as[String], Right("alice"))
+    assertEquals(j.hcursor.downField("timestamp").as[Long],        Right(1_000_000L))
+    val op = j.hcursor.downField("op")
+    assertEquals(op.downField("type").as[String], Right("insert"))
+    assertEquals(op.downField("pos").as[Int],     Right(3))
+    assertEquals(op.downField("text").as[String], Right("hi"))

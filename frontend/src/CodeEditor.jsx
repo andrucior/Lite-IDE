@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import Editor from '@monaco-editor/react'
 import { useCollab } from './useCollab.js'
+import HistoryPanel from './HistoryPanel.jsx'
 import PermissionsPanel from './PermissionsPanel.jsx'
 
 const LANGUAGES = ['plaintext', 'javascript', 'typescript', 'python', 'scala', 'css', 'html', 'json']
@@ -29,12 +30,14 @@ function colourFor(sessionId) {
  *   3. Observers get a read-only Monaco instance — the server also rejects their edits,
  *      so this is defence-in-depth rather than the sole guard.
  */
+
 export default function CodeEditor({ document: doc, userName, userId, onBack }) {
-  const editorRef      = useRef(null)
-  const monacoRef      = useRef(null)
+  const editorRef = useRef(null)
+  const monacoRef = useRef(null)
   const decorationsRef = useRef(null) // monaco IEditorDecorationsCollection
-  const [language, setLanguage]     = useState('plaintext')
-  const [showPerms, setShowPerms]   = useState(false)
+  const [language, setLanguage] = useState('plaintext')
+  const [showPerms, setShowPerms] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
 
   const { status, snapshot, peers, role, sessionId, applyingRemote, sendChanges, sendCursor } =
     useCollab(doc?.id, userName, editorRef, monacoRef)
@@ -72,19 +75,19 @@ export default function CodeEditor({ document: doc, userName, userId, onBack }) 
     if (!model) return
 
     const decos = peers.flatMap((p) => {
-      const len        = model.getValueLength()
+      const len = model.getValueLength()
       const safeCursor = Math.max(0, Math.min(p.cursor, len))
-      const safeSel    = Math.max(0, Math.min(p.selectionEnd, len))
-      const cursorPos  = model.getPositionAt(safeCursor)
+      const safeSel = Math.max(0, Math.min(p.selectionEnd, len))
+      const cursorPos = model.getPositionAt(safeCursor)
       const out = [{
         range: new monaco.Range(cursorPos.lineNumber, cursorPos.column, cursorPos.lineNumber, cursorPos.column),
         options: { className: `peer-cursor-${cssId(p.sessionId)}`, stickiness: 1, hoverMessage: { value: p.displayName } },
       }]
       if (safeSel !== safeCursor) {
-        const a     = Math.min(safeCursor, safeSel)
-        const b     = Math.max(safeCursor, safeSel)
+        const a = Math.min(safeCursor, safeSel)
+        const b = Math.max(safeCursor, safeSel)
         const start = model.getPositionAt(a)
-        const end   = model.getPositionAt(b)
+        const end = model.getPositionAt(b)
         out.push({
           range: new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column),
           options: { className: `peer-selection-${cssId(p.sessionId)}` },
@@ -112,7 +115,7 @@ export default function CodeEditor({ document: doc, userName, userId, onBack }) 
       if (applyingRemote.current) return
       const model = editor.getModel()
       if (!model) return
-      const sel    = e.selection
+      const sel = e.selection
       const cursor = model.getOffsetAt({ lineNumber: sel.positionLineNumber, column: sel.positionColumn })
       const anchor = model.getOffsetAt({ lineNumber: sel.selectionStartLineNumber, column: sel.selectionStartColumn })
       sendCursor(cursor, anchor)
@@ -139,12 +142,15 @@ export default function CodeEditor({ document: doc, userName, userId, onBack }) 
         </select>
         {!isObserver && <button onClick={formatCode}>Format</button>}
         <button
-          onClick={() => setShowPerms(v => !v)}
+          onClick={() => { setShowHistory(v => !v); setShowPerms(false) }}
+          className={showHistory ? 'active' : ''}
+          title="Toggle edit history"
+        >History</button>
+        <button
+          onClick={() => { setShowPerms(v => !v); setShowHistory(false) }}
+          className={showPerms ? 'active' : ''}
           title="Document permissions"
-          style={{ marginLeft: 'auto' }}
-        >
-          Permissions
-        </button>
+        >Permissions</button>
         <div className="peers">
           {peers.map((p) => (
             <span key={p.sessionId} className="peer-chip" style={{ borderColor: colourFor(p.sessionId) }}>
@@ -182,6 +188,13 @@ export default function CodeEditor({ document: doc, userName, userId, onBack }) 
             <div className="loading">Connecting…</div>
           )}
         </div>
+
+        {showHistory && (
+          <HistoryPanel
+            documentId={doc.id}
+            onClose={() => setShowHistory(false)}
+          />
+        )}
 
         {showPerms && (
           <PermissionsPanel

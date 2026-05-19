@@ -6,7 +6,7 @@ import cats.syntax.all.*
 import fs2.Stream
 import fs2.concurrent.Topic
 
-import com.liteide.domain.{Op, Presence, Role}
+import com.liteide.domain.{HistoryEntry, Op, Presence, Role}
 import com.liteide.domain.Ids.{DocumentId, SessionId, UserId}
 import com.liteide.protocol.Wire.ServerMsg
 
@@ -49,12 +49,30 @@ trait DocumentRoom[F[_]]:
   /** Current snapshot — used for REST GET. */
   def snapshot: F[(Int, String)]
 
+  /** Full edit log with author metadata — used for the history REST endpoint. */
+  def historyEntries: F[List[HistoryEntry]]
+
+  /** Reconstruct the document text at any past version for diff computation.
+   *  Returns None if targetVersion is outside [0, currentVersion].
+   */
+  def textAtVersion(targetVersion: Int): F[Option[String]]
+
   /** Number of currently-connected sessions. */
   def peerCount: F[Int]
 
 object DocumentRoom:
 
-  private final case class State(text: String, version: Int, history: Vector[Op])
+  // A full text snapshot is stored every N versions so that textAtVersion never
+  // needs to replay more than N ops. Lower = faster reads, higher memory use.
+  private val SnapshotInterval = 100
+
+  private final case class State(
+      initialText: String,
+      text:        String,
+      version:     Int,
+      history:     Vector[HistoryEntry],
+      snapshots:   Map[Int, String],  // sparse: version -> text at that version
+  )
 
   /** Build a fresh room seeded with the given text (version 0, empty history). */
   def make[F[_]: Concurrent](
@@ -62,7 +80,7 @@ object DocumentRoom:
       initialText: String
   ): F[DocumentRoom[F]] =
     for
-      state <- Ref.of[F, State](State(initialText, 0, Vector.empty))
+      state    <- Ref.of[F, State](State(initialText, initialText, 0, Vector.empty, Map(0 -> initialText)))
       presence <- Ref.of[F, Map[SessionId, Presence]](Map.empty)
       topic <- Topic[F, ServerMsg]
       mutex <- Mutex[F]
@@ -139,24 +157,42 @@ object DocumentRoom:
                     .pure[F]
                 else if Op.isNoop(op) then
                   // Drop trivial / empty edits before they reach OT so we don't bump the version
-                  // number for a change nobody can see.
+                  // number for a change nobody can see. The client still observes its own state
+                  // is consistent; if it really needs an ack it can issue a real edit.
                   (Right(s.version): Either[String, Int]).pure[F]
                 else
-                  val intervening = s.history.drop(baseVersion)
+                  // Transform `op` against every op applied after `baseVersion`. We do NOT
+                  // filter noop products of OT here: keeping them in history preserves the
+                  // invariant `history.length == version`, and the author still gets an
+                  // `Applied` to ack the edit they submitted.
+                  val intervening = s.history.drop(baseVersion).map(_.op)
                   val transformed = intervening.foldLeft(List(op)) { (acc, b) =>
                     acc.flatMap(a => Op.transform(a, b))
                   }
+                  // Apply the resulting op list; if any single application fails, abort the
+                  // whole edit (the document never goes into an invalid state).
                   Op.applyAll(s.text, transformed) match
                     case Left(reason) =>
                       (Left(reason): Either[String, Int]).pure[F]
                     case Right(newText) =>
-                      val newVersion = s.version + transformed.size
-                      val newHistory = s.history ++ transformed
-                      val newState   = State(newText, newVersion, newHistory)
-                      state.set(newState) *>
-                        topic
-                          .publish1(ServerMsg.Applied(newVersion, transformed, authorSessionId))
-                          .as(Right(newVersion): Either[String, Int])
+                      // Look up the author's display name from presence for the history log.
+                      presence.get.flatMap { presMap =>
+                        val displayName = presMap.get(authorSessionId).map(_.displayName).getOrElse("unknown")
+                        val now         = System.currentTimeMillis()
+                        val newEntries  = transformed.zipWithIndex.map { (o, i) =>
+                          HistoryEntry(o, authorSessionId, displayName, now, s.version + i + 1)
+                        }
+                        val newVersion   = s.version + transformed.size
+                        val newHistory   = s.history ++ newEntries
+                        val newSnapshots =
+                          if newVersion % SnapshotInterval == 0 then s.snapshots + (newVersion -> newText)
+                          else s.snapshots
+                        val newState = State(s.initialText, newText, newVersion, newHistory, newSnapshots)
+                        state.set(newState) *>
+                          topic
+                            .publish1(ServerMsg.Applied(newVersion, transformed, authorSessionId))
+                            .as(Right(newVersion): Either[String, Int])
+                      }
               }
           }
         }
@@ -188,6 +224,18 @@ object DocumentRoom:
 
       def snapshot: F[(Int, String)] =
         state.get.map(s => (s.version, s.text))
+
+      def historyEntries: F[List[HistoryEntry]] =
+        state.get.map(_.history.toList)
+
+      def textAtVersion(targetVersion: Int): F[Option[String]] =
+        state.get.map { s =>
+          if targetVersion < 0 || targetVersion > s.version then None
+          else if targetVersion == s.version then Some(s.text)
+          else
+            val (snapVersion, snapText) = s.snapshots.filter(_._1 <= targetVersion).maxBy(_._1)
+            Op.applyAll(snapText, s.history.slice(snapVersion, targetVersion).map(_.op).toList).toOption
+        }
 
       def peerCount: F[Int] =
         presence.get.map(_.size)

@@ -56,6 +56,18 @@ export async function getDocument(id) {
   return r.json()
 }
 
+export async function getDocumentHistory(id) {
+  const r = await fetch(`/api/documents/${id}/history`)
+  if (!r.ok) throw new Error(`getDocumentHistory: HTTP ${r.status}`)
+  return r.json()
+}
+
+export async function getHistoryDiff(id, fromVersion, toVersion) {
+  const r = await fetch(`/api/documents/${id}/history/diff?from=${fromVersion}&to=${toVersion}`)
+  if (!r.ok) throw new Error(`getHistoryDiff: HTTP ${r.status}`)
+  return r.json()
+}
+
 /** Fetch the permission list for a document.
  *  Returns `{ ownerId: string, permissions: Array<{ userId: string, role: string }> }`. */
 export async function getPermissions(docId) {

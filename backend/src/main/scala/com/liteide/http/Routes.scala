@@ -13,7 +13,7 @@ import org.http4s.server.Router
 import org.http4s.server.middleware.CORS
 import org.http4s.server.websocket.WebSocketBuilder2
 
-import com.liteide.domain.{Role}
+import com.liteide.domain.{HistoryEntry, Role}
 import com.liteide.domain.Ids.{DocumentId, UserId}
 import com.liteide.service.{DocumentService, RoomRegistry}
 import com.liteide.ws.CollabSocket
@@ -57,9 +57,9 @@ object Routes:
       wsb: WebSocketBuilder2[F]
   ): HttpRoutes[F] =
     val tree = Router(
-      "/" -> health[F],
-      "/api/documents" -> documents[F](docs),
-      "/ws" -> websockets[F](docs, rooms, wsb)
+      "/"              -> health[F],
+      "/api/documents" -> documents[F](docs, rooms),
+      "/ws"            -> websockets[F](docs, rooms, wsb),
     )
     CORS.policy.withAllowOriginAll.withAllowCredentials(false).apply(tree)
 
@@ -74,7 +74,7 @@ object Routes:
 
   // --------------------------------------------------------------- documents
 
-  private def documents[F[_]: Async](docs: DocumentService[F]): HttpRoutes[F] =
+  private def documents[F[_]: Async](docs: DocumentService[F], rooms: RoomRegistry[F]): HttpRoutes[F] =
     val dsl = new Http4sDsl[F] {}
     import dsl.*
 
@@ -82,6 +82,9 @@ object Routes:
     given EntityDecoder[F, SetPermissionRequest]   = jsonOf[F, SetPermissionRequest]
 
     object ActingUserQ extends QueryParamDecoderMatcher[String]("actingUserId")
+
+    object FromV extends QueryParamDecoderMatcher[Int]("from")
+    object ToV   extends QueryParamDecoderMatcher[Int]("to")
 
     HttpRoutes.of[F] {
       // List ----------------------------------------------------------------
@@ -101,6 +104,32 @@ object Routes:
             Created(d.asJson)
           }
         }
+
+      // Get history diff ----------------------------------------------------
+      case GET -> Root / idStr / "history" / "diff" :? FromV(from) +& ToV(to) =>
+        DocumentId.fromString(idStr) match
+          case None => NotFound(Json.obj("error" -> "invalid id".asJson))
+          case Some(id) =>
+            rooms.get(id).flatMap {
+              case None => NotFound(Json.obj("error" -> "room not active".asJson))
+              case Some(room) =>
+                (room.textAtVersion(from - 1), room.textAtVersion(to)).tupled.flatMap {
+                  case (Some(before), Some(after)) =>
+                    Ok(Json.obj("before" -> before.asJson, "after" -> after.asJson))
+                  case _ =>
+                    UnprocessableEntity(Json.obj("error" -> "version out of range".asJson))
+                }
+            }
+
+      // Get history ---------------------------------------------------------
+      case GET -> Root / idStr / "history" =>
+        DocumentId.fromString(idStr) match
+          case None => NotFound(Json.obj("error" -> "invalid id".asJson))
+          case Some(id) =>
+            rooms.get(id).flatMap {
+              case None       => Ok(List.empty[HistoryEntry].asJson)
+              case Some(room) => room.historyEntries.flatMap(entries => Ok(entries.asJson))
+            }
 
       // List permissions ----------------------------------------------------
       case GET -> Root / idStr / "permissions" =>
