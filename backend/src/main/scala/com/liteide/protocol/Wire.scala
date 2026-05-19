@@ -8,9 +8,9 @@ import com.liteide.domain.Ids.{DocumentId, SessionId, UserId}
 
 /** Wire protocol over the collaboration WebSocket.
   *
-  * Each message is a JSON object with a `"type"` discriminator. Versions are integers
-  * monotonically increasing per document; clients send their `baseVersion` on every edit so
-  * the server can transform stale ops via OT.
+  * Each message is a JSON object with a `"type"` discriminator. Versions are integers monotonically
+  * increasing per document; clients send their `baseVersion` on every edit so the server can
+  * transform stale ops via OT.
   */
 object Wire:
 
@@ -52,31 +52,31 @@ object Wire:
     /** First message after a successful join: full document state + current peers. */
     case Snapshot(
         documentId: DocumentId,
-        sessionId:  SessionId,
-        userId:     UserId,
-        version:    Int,
-        text:       String,
-        peers:      List[Presence],
+        sessionId: SessionId,
+        userId: UserId,
+        version: Int,
+        text: String,
+        peers: List[Presence]
     )
 
     /** Authoritative broadcast of one or more ops applied at `version`.
       *
-      * If the client authored these (compare `authorSessionId` to its own session id), it
-      * can use the ack to bump its baseVersion; otherwise it applies them locally.
+      * If the client authored these (compare `authorSessionId` to its own session id), it can use
+      * the ack to bump its baseVersion; otherwise it applies them locally.
       */
     case Applied(
-        version:         Int,
-        ops:             List[Op],
-        authorSessionId: SessionId,
+        version: Int,
+        ops: List[Op],
+        authorSessionId: SessionId
     )
 
     /** A peer updated their cursor / selection. */
     case CursorUpdate(
-        sessionId:    SessionId,
-        userId:       UserId,
-        displayName:  String,
-        cursor:       Int,
-        selectionEnd: Int,
+        sessionId: SessionId,
+        userId: UserId,
+        displayName: String,
+        cursor: Int,
+        selectionEnd: Int
     )
 
     /** A new participant joined. */
@@ -92,29 +92,29 @@ object Wire:
     given Encoder[ServerMsg] = Encoder.instance {
       case ServerMsg.Snapshot(docId, sid, uid, v, t, peers) =>
         Json.obj(
-          "type"       -> "snapshot".asJson,
+          "type" -> "snapshot".asJson,
           "documentId" -> docId.asJson,
-          "sessionId"  -> sid.asJson,
-          "userId"     -> uid.asJson,
-          "version"    -> v.asJson,
-          "text"       -> t.asJson,
-          "peers"      -> peers.asJson,
+          "sessionId" -> sid.asJson,
+          "userId" -> uid.asJson,
+          "version" -> v.asJson,
+          "text" -> t.asJson,
+          "peers" -> peers.asJson
         )
       case ServerMsg.Applied(v, ops, author) =>
         Json.obj(
-          "type"            -> "applied".asJson,
-          "version"         -> v.asJson,
-          "ops"             -> ops.asJson,
-          "authorSessionId" -> author.asJson,
+          "type" -> "applied".asJson,
+          "version" -> v.asJson,
+          "ops" -> ops.asJson,
+          "authorSessionId" -> author.asJson
         )
       case ServerMsg.CursorUpdate(sid, uid, name, cur, sel) =>
         Json.obj(
-          "type"         -> "cursor".asJson,
-          "sessionId"    -> sid.asJson,
-          "userId"       -> uid.asJson,
-          "displayName"  -> name.asJson,
-          "cursor"       -> cur.asJson,
-          "selectionEnd" -> sel.asJson,
+          "type" -> "cursor".asJson,
+          "sessionId" -> sid.asJson,
+          "userId" -> uid.asJson,
+          "displayName" -> name.asJson,
+          "cursor" -> cur.asJson,
+          "selectionEnd" -> sel.asJson
         )
       case ServerMsg.PeerJoined(p) =>
         Json.obj("type" -> "peerJoined".asJson, "presence" -> p.asJson)

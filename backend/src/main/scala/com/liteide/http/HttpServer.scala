@@ -15,8 +15,8 @@ object HttpServer:
 
   def serve[F[_]: Async: Network](
       config: HttpConfig,
-      docs:   DocumentService[F],
-      rooms:  RoomRegistry[F],
+      docs: DocumentService[F],
+      rooms: RoomRegistry[F]
   ): Resource[F, Server] =
     EmberServerBuilder
       .default[F]

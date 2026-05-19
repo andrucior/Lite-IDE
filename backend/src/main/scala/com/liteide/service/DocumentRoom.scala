@@ -13,14 +13,13 @@ import com.liteide.protocol.Wire.ServerMsg
 /** The live, in-memory state of one document and the people editing it.
   *
   * Concurrency model:
-  *  - All mutations of `(text, version, history)` happen inside a per-room `Mutex` so that
-  *    transform-and-apply is atomic; the rest of the runtime stays free to do work in
-  *    parallel. The mutex is fine because each room has its own — fan-out across documents
-  *    scales naturally.
-  *  - Outbound fan-out uses an fs2 `Topic`, which is many-to-many and back-pressures per
-  *    subscriber. New joiners subscribe with a bounded buffer.
-  *  - Presence (cursors / peers) is a separate `Ref` because it doesn't affect text and
-  *    doesn't need to be serialised behind the same mutex.
+  *   - All mutations of `(text, version, history)` happen inside a per-room `Mutex` so that
+  *     transform-and-apply is atomic; the rest of the runtime stays free to do work in parallel.
+  *     The mutex is fine because each room has its own — fan-out across documents scales naturally.
+  *   - Outbound fan-out uses an fs2 `Topic`, which is many-to-many and back-pressures per
+  *     subscriber. New joiners subscribe with a bounded buffer.
+  *   - Presence (cursors / peers) is a separate `Ref` because it doesn't affect text and doesn't
+  *     need to be serialised behind the same mutex.
   */
 trait DocumentRoom[F[_]]:
   def documentId: DocumentId
@@ -28,14 +27,17 @@ trait DocumentRoom[F[_]]:
   /** Subscribe to broadcast messages. Returns the snapshot the new participant should see
     * (atomically captured at subscribe time) and a stream of every subsequent broadcast.
     */
-  def join(sessionId: SessionId, userId: UserId, displayName: String)
-      : F[(ServerMsg.Snapshot, Stream[F, ServerMsg])]
+  def join(
+      sessionId: SessionId,
+      userId: UserId,
+      displayName: String
+  ): F[(ServerMsg.Snapshot, Stream[F, ServerMsg])]
 
   /** Remove a session — drop its presence and broadcast `PeerLeft`. */
   def leave(sessionId: SessionId): F[Unit]
 
-  /** Apply a client edit (transforming against intervening ops if `baseVersion` is stale)
-    * and broadcast the result. Returns the new version on success.
+  /** Apply a client edit (transforming against intervening ops if `baseVersion` is stale) and
+    * broadcast the result. Returns the new version on success.
     */
   def submitEdit(authorSessionId: SessionId, baseVersion: Int, op: Op): F[Either[String, Int]]
 
@@ -54,22 +56,22 @@ object DocumentRoom:
 
   /** Build a fresh room seeded with the given text (version 0, empty history). */
   def make[F[_]: Concurrent](
-      docId:       DocumentId,
-      initialText: String,
+      docId: DocumentId,
+      initialText: String
   ): F[DocumentRoom[F]] =
     for
-      state    <- Ref.of[F, State](State(initialText, 0, Vector.empty))
+      state <- Ref.of[F, State](State(initialText, 0, Vector.empty))
       presence <- Ref.of[F, Map[SessionId, Presence]](Map.empty)
-      topic    <- Topic[F, ServerMsg]
-      mutex    <- Mutex[F]
+      topic <- Topic[F, ServerMsg]
+      mutex <- Mutex[F]
     yield new DocumentRoom[F]:
 
       val documentId: DocumentId = docId
 
       def join(
-          sessionId:   SessionId,
-          userId:      UserId,
-          displayName: String,
+          sessionId: SessionId,
+          userId: UserId,
+          displayName: String
       ): F[(ServerMsg.Snapshot, Stream[F, ServerMsg])] =
         // We capture the snapshot AND register the subscription under the mutex. Because
         // every state-mutating publish also runs under the mutex (see `submitEdit`), this
@@ -86,43 +88,47 @@ object DocumentRoom:
             // back as a stream finalizer.
             allocated <- topic.subscribeAwait(64).allocated
             (rawStream, release) = allocated
-            s     <- state.get
+            s <- state.get
             peers <- presence.get
-            me     = Presence(sessionId, userId, displayName, cursor = 0, selectionEnd = 0)
-            _     <- presence.update(_.updated(sessionId, me))
+            me = Presence(sessionId, userId, displayName, cursor = 0, selectionEnd = 0)
+            _ <- presence.update(_.updated(sessionId, me))
             // Explicit type ascription is required: without it, the for-comprehension
             // widens `snap` to the parent `ServerMsg` type (due to the later
             // `topic.publish1` step) and the yielded tuple no longer matches the
             // declared return type `(ServerMsg.Snapshot, Stream[F, ServerMsg])`.
             snap: ServerMsg.Snapshot = ServerMsg.Snapshot(
-                       documentId  = docId,
-                       sessionId   = sessionId,
-                       userId      = userId,
-                       version     = s.version,
-                       text        = s.text,
-                       peers       = peers.values.toList,
-                     )
-            _     <- topic.publish1(ServerMsg.PeerJoined(me)).void
+              documentId = docId,
+              sessionId = sessionId,
+              userId = userId,
+              version = s.version,
+              text = s.text,
+              peers = peers.values.toList
+            )
+            _ <- topic.publish1(ServerMsg.PeerJoined(me)).void
             stream = rawStream.onFinalize(release)
           yield (snap, stream)
         }
 
       def leave(sessionId: SessionId): F[Unit] =
         for
-          removed <- presence.modify { m => (m.removed(sessionId), m.contains(sessionId)) }
-          _       <- if removed then topic.publish1(ServerMsg.PeerLeft(sessionId)).void
-                     else Concurrent[F].unit
+          removed <- presence.modify(m => (m.removed(sessionId), m.contains(sessionId)))
+          _ <-
+            if removed then topic.publish1(ServerMsg.PeerLeft(sessionId)).void
+            else Concurrent[F].unit
         yield ()
 
       def submitEdit(
           authorSessionId: SessionId,
-          baseVersion:     Int,
-          op:              Op,
+          baseVersion: Int,
+          op: Op
       ): F[Either[String, Int]] =
         mutex.lock.surround {
           state.get.flatMap { s =>
             if baseVersion < 0 || baseVersion > s.version then
-              (Left(s"baseVersion $baseVersion out of range [0, ${s.version}]"): Either[String, Int])
+              (Left(s"baseVersion $baseVersion out of range [0, ${s.version}]"): Either[
+                String,
+                Int
+              ])
                 .pure[F]
             else if Op.isNoop(op) then
               // Drop trivial / empty edits before they reach OT so we don't bump the version
@@ -146,7 +152,7 @@ object DocumentRoom:
                 case Right(newText) =>
                   val newVersion = s.version + transformed.size
                   val newHistory = s.history ++ transformed
-                  val newState   = State(newText, newVersion, newHistory)
+                  val newState = State(newText, newVersion, newHistory)
                   state.set(newState) *>
                     topic
                       .publish1(ServerMsg.Applied(newVersion, transformed, authorSessionId))
@@ -155,27 +161,29 @@ object DocumentRoom:
         }
 
       def submitCursor(sessionId: SessionId, pos: Int, selectionEnd: Int): F[Unit] =
-        presence.modify { m =>
-          m.get(sessionId) match
-            case None    => (m, None)
+        presence
+          .modify { m =>
+            m.get(sessionId) match
+              case None => (m, None)
+              case Some(p) =>
+                val updated = p.copy(cursor = pos, selectionEnd = selectionEnd)
+                (m.updated(sessionId, updated), Some(updated))
+          }
+          .flatMap {
+            case None => Concurrent[F].unit
             case Some(p) =>
-              val updated = p.copy(cursor = pos, selectionEnd = selectionEnd)
-              (m.updated(sessionId, updated), Some(updated))
-        }.flatMap {
-          case None    => Concurrent[F].unit
-          case Some(p) =>
-            topic
-              .publish1(
-                ServerMsg.CursorUpdate(
-                  sessionId    = p.sessionId,
-                  userId       = p.userId,
-                  displayName  = p.displayName,
-                  cursor       = p.cursor,
-                  selectionEnd = p.selectionEnd,
+              topic
+                .publish1(
+                  ServerMsg.CursorUpdate(
+                    sessionId = p.sessionId,
+                    userId = p.userId,
+                    displayName = p.displayName,
+                    cursor = p.cursor,
+                    selectionEnd = p.selectionEnd
+                  )
                 )
-              )
-              .void
-        }
+                .void
+          }
 
       def snapshot: F[(Int, String)] =
         state.get.map(s => (s.version, s.text))
