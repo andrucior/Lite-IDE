@@ -37,7 +37,7 @@ export default function CodeEditor({ document: doc, userName, userId, onBack }) 
   const [showPerms, setShowPerms]   = useState(false)
 
   const { status, snapshot, peers, role, sessionId, applyingRemote, sendChanges, sendCursor } =
-    useCollab(doc?.id, userName, userId, editorRef, monacoRef)
+    useCollab(doc?.id, userName, editorRef, monacoRef)
 
   const isObserver = role === 'observer'
 

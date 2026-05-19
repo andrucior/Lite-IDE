@@ -18,14 +18,19 @@ export function sanitizeUserName(raw) {
 
 /** Return the stable user ID for this browser, generating and persisting one on first use.
  *  The ID is a UUID stored in localStorage under a fixed key. Sharing this ID with a
- *  document owner lets them grant or restrict access for this browser. */
+ *  document owner lets them grant or restrict access for this browser.
+ *
+ *  The same value is also written to a cookie so the browser sends it automatically
+ *  during the WebSocket upgrade request. The backend reads it from the Cookie header,
+ *  which means the frontend never has to embed it in a user-constructed URL. */
 export function getOrCreateUserId() {
   const KEY = 'lite-ide-user-id'
   let id = localStorage.getItem(KEY)
-  if (!id) {
+  if (!id || !UUID_RE.test(id)) {
     id = crypto.randomUUID()
     localStorage.setItem(KEY, id)
   }
+  document.cookie = `${KEY}=${id}; path=/; max-age=31536000; SameSite=Lax`
   return id
 }
 

@@ -23,7 +23,7 @@ import { sanitizeUserName, UUID_RE } from './api.js'
  *   - When an `Applied` is from a peer, we apply each op to Monaco (guarded by a flag
  *     so our own change-listener doesn't try to re-emit it) and advance `versionRef`.
  */
-export function useCollab(documentId, userName, userId, editorRef, monacoRef) {
+export function useCollab(documentId, userName, editorRef, monacoRef) {
   const [status,   setStatus]   = useState('connecting')
   const [snapshot, setSnapshot] = useState(null)
   const [peers,    setPeers]    = useState([])
@@ -53,9 +53,8 @@ export function useCollab(documentId, userName, userId, editorRef, monacoRef) {
     if (!documentId) return undefined
     if (!UUID_RE.test(documentId)) return undefined
     const safeUserName = sanitizeUserName(userName ?? '')
-    const safeUserId   = UUID_RE.test(userId ?? '') ? userId : ''
     const proto = globalThis.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const url = `${proto}//${globalThis.location.host}/ws/documents/${documentId}?user=${encodeURIComponent(safeUserName)}&userId=${encodeURIComponent(safeUserId)}`
+    const url = `${proto}//${globalThis.location.host}/ws/documents/${documentId}?user=${encodeURIComponent(safeUserName)}`
     const ws = new WebSocket(url)
     wsRef.current = ws
 
@@ -138,7 +137,7 @@ export function useCollab(documentId, userName, userId, editorRef, monacoRef) {
       // Use 1000 (normal closure) so the server-side finalize doesn't log it as abnormal.
       try { ws.close(1000) } catch { /* already closed */ }
     }
-  }, [documentId, userName, userId, editorRef, monacoRef])
+  }, [documentId, userName, editorRef, monacoRef])
 
   /** Forward Monaco change events. Each event can carry several disjoint edits; we
    *  serialise them in offset order (highest first) so each op's positions are still

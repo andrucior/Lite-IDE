@@ -169,13 +169,14 @@ object Routes:
     val dsl = new Http4sDsl[F] {}
     import dsl.*
 
-    object UserQ   extends OptionalQueryParamDecoderMatcher[String]("user")
-    object UserIdQ extends OptionalQueryParamDecoderMatcher[String]("userId")
+    object UserQ extends OptionalQueryParamDecoderMatcher[String]("user")
 
-    HttpRoutes.of[F] { case GET -> Root / "documents" / idStr :? UserQ(userOpt) +& UserIdQ(userIdOpt) =>
+    HttpRoutes.of[F] { case req @ GET -> Root / "documents" / idStr :? UserQ(userOpt) =>
       DocumentId.fromString(idStr) match
         case None     => NotFound("invalid document id")
         case Some(id) =>
-          val userId = userIdOpt.flatMap(UserId.fromString)
+          val userId = req.cookies
+            .find(_.name == "lite-ide-user-id")
+            .flatMap(c => UserId.fromString(c.content))
           CollabSocket.route[F](wsb, rooms, docs, id, userOpt.getOrElse(""), userId)
     }
