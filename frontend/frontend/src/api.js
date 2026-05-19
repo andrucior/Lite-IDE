@@ -79,17 +79,17 @@ export async function removePermission(docId, actingUserId, targetUserId) {
   if (!r.ok) throw new Error(`removePermission: HTTP ${r.status}`)
 }
 
-const USER_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /** Build the WebSocket URL for a document. We compute it against `globalThis.location` so it
  *  works identically in dev (Vite proxy) and prod (same origin reverse proxy). */
 export function wsUrl(documentId, userName, userId) {
   const proto = globalThis.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  // Sanitize before URL-encoding so taint analysis sees cleaned values flowing into
-  // the streaming connection. Both name and userId are validated against strict whitelists
-  // before being embedded in the URL, preventing user-supplied data from controlling
-  // connection parameters.
-  const user = encodeURIComponent(sanitizeUserName(userName ?? ''))
-  const uid  = encodeURIComponent(USER_ID_RE.test(userId ?? '') ? userId : '')
-  return `${proto}//${globalThis.location.host}/ws/documents/${documentId}?user=${user}&userId=${uid}`
+  // All three user-supplied parameters are validated against strict whitelists before
+  // being embedded in the URL, so no user-controlled value reaches the WebSocket sink.
+  if (!UUID_RE.test(documentId ?? '')) throw new Error('wsUrl: invalid documentId')
+  const docId = documentId
+  const user  = encodeURIComponent(sanitizeUserName(userName ?? ''))
+  const uid   = encodeURIComponent(UUID_RE.test(userId ?? '') ? userId : '')
+  return `${proto}//${globalThis.location.host}/ws/documents/${docId}?user=${user}&userId=${uid}`
 }
