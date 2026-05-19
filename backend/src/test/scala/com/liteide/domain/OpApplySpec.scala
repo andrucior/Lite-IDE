@@ -2,8 +2,8 @@ package com.liteide.domain
 
 import munit.FunSuite
 
-/** Tests for the per-op application semantics — separate from convergence so that range
-  * checks and boundary conditions stay readable.
+/** Tests for the per-op application semantics — separate from convergence so that range checks and
+  * boundary conditions stay readable.
   */
 final class OpApplySpec extends FunSuite:
 

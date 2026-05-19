@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import PropTypes from 'prop-types'
 import Editor from '@monaco-editor/react'
 import { useCollab } from './useCollab.js'
 import HistoryPanel from './HistoryPanel.jsx'
+import PermissionsPanel from './PermissionsPanel.jsx'
 
 const LANGUAGES = ['plaintext', 'javascript', 'typescript', 'python', 'scala', 'css', 'html', 'json']
 
@@ -25,16 +27,22 @@ function colourFor(sessionId) {
  *      is known and we'd never reconcile.
  *   2. We inject per-peer cursor decorations via a dynamic `<style>` tag — Monaco's
  *      decoration API only takes a class name, so the colour has to come from CSS.
+ *   3. Observers get a read-only Monaco instance — the server also rejects their edits,
+ *      so this is defence-in-depth rather than the sole guard.
  */
-export default function CodeEditor({ document: doc, userName, onBack }) {
+
+export default function CodeEditor({ document: doc, userName, userId, onBack }) {
   const editorRef = useRef(null)
   const monacoRef = useRef(null)
-  const decorationsRef = useRef(null)
+  const decorationsRef = useRef(null) // monaco IEditorDecorationsCollection
   const [language, setLanguage] = useState('plaintext')
+  const [showPerms, setShowPerms] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
 
-  const { status, snapshot, peers, sessionId, applyingRemote, sendChanges, sendCursor } =
+  const { status, snapshot, peers, role, sessionId, applyingRemote, sendChanges, sendCursor } =
     useCollab(doc?.id, userName, editorRef, monacoRef)
+
+  const isObserver = role === 'observer'
 
   // Push peer-colour CSS into the document once. The selectors are scoped by sessionId
   // so removing a peer doesn't leak styles into the next session that takes that slot.
@@ -44,7 +52,6 @@ export default function CodeEditor({ document: doc, userName, onBack }) {
     style.dataset.peers = 'true'
     style.textContent = peers.map((p) => {
       const c = colourFor(p.sessionId)
-      // The class names match those we set in `decorationsRef` below.
       return `
         .peer-cursor-${cssId(p.sessionId)} {
           border-left: 2px solid ${c};
@@ -70,8 +77,8 @@ export default function CodeEditor({ document: doc, userName, onBack }) {
     const decos = peers.flatMap((p) => {
       const len = model.getValueLength()
       const safeCursor = Math.max(0, Math.min(p.cursor, len))
-      const safeSel    = Math.max(0, Math.min(p.selectionEnd, len))
-      const cursorPos  = model.getPositionAt(safeCursor)
+      const safeSel = Math.max(0, Math.min(p.selectionEnd, len))
+      const cursorPos = model.getPositionAt(safeCursor)
       const out = [{
         range: new monaco.Range(cursorPos.lineNumber, cursorPos.column, cursorPos.lineNumber, cursorPos.column),
         options: { className: `peer-cursor-${cssId(p.sessionId)}`, stickiness: 1, hoverMessage: { value: p.displayName } },
@@ -80,7 +87,7 @@ export default function CodeEditor({ document: doc, userName, onBack }) {
         const a = Math.min(safeCursor, safeSel)
         const b = Math.max(safeCursor, safeSel)
         const start = model.getPositionAt(a)
-        const end   = model.getPositionAt(b)
+        const end = model.getPositionAt(b)
         out.push({
           range: new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column),
           options: { className: `peer-selection-${cssId(p.sessionId)}` },
@@ -108,7 +115,7 @@ export default function CodeEditor({ document: doc, userName, onBack }) {
       if (applyingRemote.current) return
       const model = editor.getModel()
       if (!model) return
-      const sel    = e.selection
+      const sel = e.selection
       const cursor = model.getOffsetAt({ lineNumber: sel.positionLineNumber, column: sel.positionColumn })
       const anchor = model.getOffsetAt({ lineNumber: sel.selectionStartLineNumber, column: sel.selectionStartColumn })
       sendCursor(cursor, anchor)
@@ -129,44 +136,88 @@ export default function CodeEditor({ document: doc, userName, onBack }) {
         <button onClick={onBack} title="Back to document list">← Documents</button>
         <strong>{doc.title}</strong>
         <span className={`status status-${status}`}>{status}</span>
+        {role && <span className={`role-badge role-${role}`}>{role}</span>}
         <select value={language} onChange={(e) => setLanguage(e.target.value)}>
           {LANGUAGES.map((l) => <option key={l}>{l}</option>)}
         </select>
-        <button onClick={formatCode}>Format</button>
+        {!isObserver && <button onClick={formatCode}>Format</button>}
         <button
-          onClick={() => setShowHistory(v => !v)}
+          onClick={() => { setShowHistory(v => !v); setShowPerms(false) }}
           className={showHistory ? 'active' : ''}
           title="Toggle edit history"
         >History</button>
+        <button
+          onClick={() => { setShowPerms(v => !v); setShowHistory(false) }}
+          className={showPerms ? 'active' : ''}
+          title="Document permissions"
+        >Permissions</button>
         <div className="peers">
           {peers.map((p) => (
             <span key={p.sessionId} className="peer-chip" style={{ borderColor: colourFor(p.sessionId) }}>
               {p.displayName}
+              {p.role === 'observer' && <span className="peer-role-hint"> 👁</span>}
             </span>
           ))}
           {sessionId && <span className="peer-chip self">{userName} (you)</span>}
         </div>
       </div>
 
-      {ready ? (
-        <div className="editor-area">
-          <Editor
-            height="calc(100vh - 48px)"
-            language={language}
-            theme="vs-dark"
-            defaultValue={snapshot.text}
-            onMount={handleMount}
-            options={{ fontSize: 14, wordWrap: 'on', automaticLayout: true }}
-          />
-          {showHistory && (
-            <HistoryPanel documentId={doc.id} onClose={() => setShowHistory(false)} />
+      {isObserver && (
+        <div className="observer-banner">
+          You have read-only access to this document.
+        </div>
+      )}
+
+      <div className="editor-main">
+        <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+          {ready ? (
+            <Editor
+              height="100%"
+              language={language}
+              theme="vs-dark"
+              defaultValue={snapshot.text}
+              onMount={handleMount}
+              options={{
+                fontSize: 14,
+                wordWrap: 'on',
+                automaticLayout: true,
+                readOnly: isObserver,
+              }}
+            />
+          ) : (
+            <div className="loading">Connecting…</div>
           )}
         </div>
-      ) : (
-        <div className="loading">Connecting…</div>
-      )}
+
+        {showHistory && (
+          <HistoryPanel
+            documentId={doc.id}
+            onClose={() => setShowHistory(false)}
+          />
+        )}
+
+        {showPerms && (
+          <PermissionsPanel
+            documentId={doc.id}
+            userId={userId}
+            role={role}
+            peers={peers}
+            onClose={() => setShowPerms(false)}
+          />
+        )}
+      </div>
     </div>
   )
+}
+
+CodeEditor.propTypes = {
+  document: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    title: PropTypes.string.isRequired,
+  }).isRequired,
+  userName: PropTypes.string.isRequired,
+  userId: PropTypes.string.isRequired,
+  onBack: PropTypes.func.isRequired,
 }
 
 /** Sanitise a UUID into something we can stick into a CSS class. */

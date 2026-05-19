@@ -43,6 +43,11 @@ button:disabled {
   cursor: not-allowed;
 }
 
+button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .muted   { color: var(--text-dim); }
 .error   { color: var(--error); margin: 12px 0; }
 .loading { color: var(--text-dim); padding: 24px; text-align: center; }
@@ -148,22 +153,39 @@ button:disabled {
 .status-closed,
 .status-error      { color: var(--error); }
 
-button.active {
-  border-color: var(--accent);
-  color: var(--accent);
+/* -------------------------------------------------------------- role badge */
+
+.role-badge {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  border: 1px solid currentColor;
 }
 
-/* -------------------------------------------------------------- editor area */
+.role-owner    { color: #e5c07b; }
+.role-editor   { color: #98c379; }
+.role-observer { color: var(--text-dim); }
 
-.editor-area {
-  display: flex;
+/* -------------------------------------------------------------- observer banner */
+
+.observer-banner {
+  background: #2a2a1e;
+  border-bottom: 1px solid #5a5a1e;
+  color: #e5c07b;
+  font-size: 13px;
+  padding: 6px 16px;
+  text-align: center;
+}
+
+/* -------------------------------------------------------------- editor layout */
+
+.editor-main {
   flex: 1;
+  position: relative;
   overflow: hidden;
-}
-
-.editor-area > :first-child {
-  flex: 1;
-  min-width: 0;
+  display: flex;
 }
 
 /* -------------------------------------------------------------- history panel */
@@ -228,6 +250,22 @@ button.active {
   border-bottom: none;
 }
 
+.history-entry-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.history-entry-btn:hover {
+  border: none;
+}
+
 .history-meta {
   display: flex;
   gap: 8px;
@@ -239,6 +277,18 @@ button.active {
   gap: 6px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.history-chevron {
+  font-size: 10px;
+  color: var(--text-dim);
+  align-self: flex-end;
+}
+
+.history-diff-body {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
 }
 
 .history-author {
@@ -262,3 +312,159 @@ button.active {
   border-radius: 2px;
 }
 
+.diff-view {
+  font-family: 'Menlo', 'Consolas', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.diff-line {
+  display: flex;
+  gap: 6px;
+  padding: 1px 0;
+}
+
+.diff-add  { color: #98c379; background: rgba(152,195,121,0.08); }
+.diff-del  { color: var(--error); background: rgba(224,108,117,0.08); }
+.diff-same { color: var(--text-dim); }
+
+.diff-prefix {
+  user-select: none;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.diff-collapse {
+  color: var(--text-dim);
+  font-size: 10px;
+  padding: 2px 0;
+  text-align: center;
+}
+
+.diff-no-change {
+  font-size: 11px;
+  padding: 4px 0;
+}
+
+/* -------------------------------------------------------------- permissions panel */
+
+.perms-panel {
+  width: 340px;
+  flex-shrink: 0;
+  background: var(--bg-2);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.perms-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.perms-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px;
+}
+
+.perms-section {
+  margin-bottom: 20px;
+}
+
+.perms-section h4 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.perms-id-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.perms-uid {
+  font-size: 11px;
+  color: var(--text-dim);
+  word-break: break-all;
+  flex: 1;
+}
+
+.perms-uid-small {
+  font-size: 10px;
+  color: var(--text-dim);
+  word-break: break-all;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 150px;
+}
+
+.perms-copy {
+  font-size: 12px;
+  padding: 3px 8px;
+  flex-shrink: 0;
+}
+
+.perms-hint {
+  font-size: 12px;
+  margin: 6px 0 0;
+}
+
+.perms-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.perms-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 10px;
+}
+
+.perms-row-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.perms-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.perms-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.perms-form input,
+.perms-form select {
+  width: 100%;
+}
+
+.peer-role-hint {
+  font-size: 10px;
+  opacity: 0.7;
+}

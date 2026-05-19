@@ -9,6 +9,7 @@ import org.http4s.Response
 import org.http4s.server.websocket.WebSocketBuilder2
 import org.http4s.websocket.WebSocketFrame
 
+import com.liteide.domain.{Role}
 import com.liteide.domain.Ids.{DocumentId, SessionId, UserId}
 import com.liteide.protocol.Wire.{ClientMsg, ServerMsg}
 import com.liteide.service.{DocumentRoom, DocumentService, RoomRegistry}
@@ -17,13 +18,15 @@ import com.liteide.service.{DocumentRoom, DocumentService, RoomRegistry}
   *
   * Lifecycle of one connection:
   *
-  *   1. URL is `/ws/documents/:id?user=<name>`.
-  *   2. We look up (or lazily create) the `DocumentRoom`.
-  *   3. We mint a fresh `SessionId` / `UserId`, register presence, and ship a `Snapshot`.
-  *   4. Inbound frames are decoded into `ClientMsg` and dispatched onto the room.
-  *   5. The outbound stream is the room's broadcast topic; we drop our own `PeerJoined`
-  *      to avoid the obviously-redundant echo, but we keep our own `Applied` because the
-  *      client uses it as an authoritative ack.
+  *   1. URL is `/ws/documents/:id?user=<name>&userId=<uuid>`.
+  *   2. We resolve the effective `Role` for `userId` via `DocumentService`:
+  *      Owner if the user created the document, an explicit grant if set, otherwise
+  *      the default `Editor` (open-access model).
+  *   3. We look up (or lazily create) the `DocumentRoom`.
+  *   4. We mint a fresh `SessionId`, register presence with the resolved role, and
+  *      ship a `Snapshot` that includes the role so the client can enforce read-only
+  *      mode immediately.
+  *   5. Inbound frames from `Observer` sessions are silently rejected by `DocumentRoom`.
   *   6. On termination (any reason) we publish `PeerLeft` and persist the snapshot back
   *      into the cold `DocumentService`.
   */
@@ -32,25 +35,28 @@ object CollabSocket:
   private val logger = org.slf4j.LoggerFactory.getLogger("com.liteide.ws.CollabSocket")
 
   def route[F[_]: Async](
-      wsb:      WebSocketBuilder2[F],
-      rooms:    RoomRegistry[F],
-      docs:     DocumentService[F],
-      docId:    DocumentId,
-      userName: String,
+      wsb:       WebSocketBuilder2[F],
+      rooms:     RoomRegistry[F],
+      docs:      DocumentService[F],
+      docId:     DocumentId,
+      userName:  String,
+      userIdOpt: Option[UserId],
   ): F[Response[F]] =
     docs.get(docId).flatMap {
       case None =>
-        // No such document — emit a single error frame and close. The frontend treats
-        // this as a fatal handshake failure.
+        // No such document — emit a single error frame and close.
         wsb
           .withFilterPingPongs(true)
           .build(
-            send    = Stream.emit(textFrame(ServerMsg.ErrorMsg(s"no such document: $docId"))),
-            receive = (_: Stream[F, WebSocketFrame]) => Stream.empty,
+            send = Stream.emit(textFrame(ServerMsg.ErrorMsg(s"no such document: $docId"))),
+            receive = (_: Stream[F, WebSocketFrame]) => Stream.empty
           )
       case Some(doc) =>
-        rooms.getOrCreate(docId, doc.contents).flatMap { room =>
-          openConnection(wsb, room, docs, userName)
+        val userId = userIdOpt.getOrElse(UserId.random)
+        docs.getRole(docId, userId).flatMap { role =>
+          rooms.getOrCreate(docId, doc.contents).flatMap { room =>
+            openConnection(wsb, room, docs, userName, userId, role)
+          }
         }
     }
 
@@ -59,12 +65,13 @@ object CollabSocket:
       room:     DocumentRoom[F],
       docs:     DocumentService[F],
       userName: String,
+      userId:   UserId,
+      role:     Role,
   ): F[Response[F]] =
     val sessionId = SessionId.random
-    val userId    = UserId.random
     val display   = if userName.isBlank then s"anon-${sessionId.value.toString.take(4)}" else userName
 
-    room.join(sessionId, userId, display).flatMap { case (snapshot, broadcast) =>
+    room.join(sessionId, userId, display, role).flatMap { case (snapshot, broadcast) =>
 
       val outbound: Stream[F, WebSocketFrame] =
         Stream.emit(textFrame(snapshot)) ++
@@ -73,7 +80,7 @@ object CollabSocket:
               // Don't echo our own join back at us — the snapshot already lists every
               // peer that was present at handshake time.
               case ServerMsg.PeerJoined(p) => p.sessionId != sessionId
-              case _                       => true
+              case _ => true
             }
             .map(textFrame)
 
@@ -102,9 +109,9 @@ object CollabSocket:
     }
 
   private def handleClientMsg[F[_]: Async](
-      room:      DocumentRoom[F],
+      room: DocumentRoom[F],
       sessionId: SessionId,
-      msg:       ClientMsg,
+      msg: ClientMsg
   ): F[Unit] =
     msg match
       case ClientMsg.Edit(baseVersion, op) =>
@@ -116,8 +123,6 @@ object CollabSocket:
       case ClientMsg.Cursor(pos, sel) =>
         room.submitCursor(sessionId, pos, sel)
       case ClientMsg.Resync =>
-        // Per-session reply channel is a follow-up. For now `Resync` is a no-op — clients
-        // can reconnect to get a fresh snapshot.
         Async[F].unit
 
   private def textFrame(msg: ServerMsg): WebSocketFrame =

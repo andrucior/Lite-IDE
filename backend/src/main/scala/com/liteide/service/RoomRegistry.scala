@@ -8,9 +8,9 @@ import com.liteide.domain.Ids.DocumentId
 
 /** Maintains the set of live `DocumentRoom`s.
   *
-  * Rooms are created lazily on the first join — a document may exist in `DocumentService`
-  * (cold metadata) without yet having a live room. A creation mutex ensures we never
-  * race two threads into building two rooms for the same id.
+  * Rooms are created lazily on the first join — a document may exist in `DocumentService` (cold
+  * metadata) without yet having a live room. A creation mutex ensures we never race two threads
+  * into building two rooms for the same id.
   */
 trait RoomRegistry[F[_]]:
   def get(docId: DocumentId): F[Option[DocumentRoom[F]]]
@@ -21,7 +21,7 @@ object RoomRegistry:
 
   def make[F[_]: Concurrent]: F[RoomRegistry[F]] =
     for
-      ref      <- Ref.of[F, Map[DocumentId, DocumentRoom[F]]](Map.empty)
+      ref <- Ref.of[F, Map[DocumentId, DocumentRoom[F]]](Map.empty)
       creation <- Mutex[F]
     yield new RoomRegistry[F]:
 
@@ -31,11 +31,11 @@ object RoomRegistry:
       def getOrCreate(docId: DocumentId, initialText: => String): F[DocumentRoom[F]] =
         get(docId).flatMap {
           case Some(r) => r.pure[F]
-          case None    =>
+          case None =>
             creation.lock.surround {
               get(docId).flatMap {
                 case Some(r) => r.pure[F]
-                case None    =>
+                case None =>
                   DocumentRoom.make[F](docId, initialText).flatTap { room =>
                     ref.update(_.updated(docId, room))
                   }

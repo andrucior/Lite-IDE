@@ -4,10 +4,9 @@ import munit.FunSuite
 
 /** Convergence tests for the operational transform.
   *
-  * For any baseline `s` and any two concurrent ops `a`, `b` produced from `s`, applying
-  * `b` then `transform(a, b)` must yield the same text as applying `a` then
-  * `transform(b, a)`. This is the property that lets every client converge regardless of
-  * who applied what first.
+  * For any baseline `s` and any two concurrent ops `a`, `b` produced from `s`, applying `b` then
+  * `transform(a, b)` must yield the same text as applying `a` then `transform(b, a)`. This is the
+  * property that lets every client converge regardless of who applied what first.
   */
 final class OpSpec extends FunSuite:
 
