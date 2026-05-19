@@ -4,8 +4,8 @@ import cats.effect.Sync
 
 /** Top-level application configuration.
   *
-  *  Currently env-var based to avoid pulling a config lib before we need one.
-  *  Replace with PureConfig / Ciris once the surface grows.
+  * Currently env-var based to avoid pulling a config lib before we need one. Replace with
+  * PureConfig / Ciris once the surface grows.
   */
 final case class AppConfig(http: HttpConfig)
 

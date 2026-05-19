@@ -8,12 +8,12 @@ import com.liteide.domain.Ids.{DocumentId, UserId}
 /** Metadata + current snapshot for a collaboratively-edited document.
   *
   * The authoritative live state — including operation history needed for OT — lives in
-  * `DocumentRoom`. This type is what the REST layer hands out and what cold storage will
-  * eventually persist.
+  * `DocumentRoom`. This type is what the REST layer hands out and what cold storage will eventually
+  * persist.
   */
 final case class Document(
-    id:       DocumentId,
-    title:    String,
+    id: DocumentId,
+    title: String,
     contents: String,
     version:  Int,
     ownerId:  UserId,

@@ -12,8 +12,8 @@ import java.util.UUID
 
 /** Wire-format tests — pinning the JSON shape that the frontend will be coded against.
   *
-  * These tests are deliberately literal: the React client builds and parses these exact
-  * strings, so if the JSON shape drifts they should be the first thing to break.
+  * These tests are deliberately literal: the React client builds and parses these exact strings, so
+  * if the JSON shape drifts they should be the first thing to break.
   */
 final class WireSpec extends FunSuite:
 
@@ -24,7 +24,7 @@ final class WireSpec extends FunSuite:
       """{"type":"edit","baseVersion":3,"op":{"type":"insert","pos":2,"text":"hi"}}"""
     assertEquals(
       decode[ClientMsg](j),
-      Right(ClientMsg.Edit(3, Op.Insert(2, "hi"))),
+      Right(ClientMsg.Edit(3, Op.Insert(2, "hi")))
     )
 
   test("decode client cursor"):
@@ -41,8 +41,8 @@ final class WireSpec extends FunSuite:
 
   test("encode snapshot has the agreed field names"):
     val docId = DocumentId(UUID.fromString("00000000-0000-0000-0000-000000000001"))
-    val sid   = SessionId(UUID.fromString("00000000-0000-0000-0000-000000000002"))
-    val uid   = UserId(UUID.fromString("00000000-0000-0000-0000-000000000003"))
+    val sid = SessionId(UUID.fromString("00000000-0000-0000-0000-000000000002"))
+    val uid = UserId(UUID.fromString("00000000-0000-0000-0000-000000000003"))
     val snap: ServerMsg =
       ServerMsg.Snapshot(docId, sid, uid, version = 7, text = "hi", peers = Nil, role = Role.Editor)
     val j     = snap.asJson
@@ -52,8 +52,9 @@ final class WireSpec extends FunSuite:
 
   test("encode applied carries every op verbatim"):
     val sid = SessionId(UUID.fromString("00000000-0000-0000-0000-000000000002"))
-    val msg: ServerMsg = ServerMsg.Applied(version = 4, ops = List(Op.Insert(0, "x")), authorSessionId = sid)
-    val j   = msg.asJson
+    val msg: ServerMsg =
+      ServerMsg.Applied(version = 4, ops = List(Op.Insert(0, "x")), authorSessionId = sid)
+    val j = msg.asJson
     assertEquals(j.hcursor.downField("type").as[String], Right("applied"))
     val opsArr = j.hcursor.downField("ops").values.toList.flatten
     assertEquals(opsArr.size, 1)
@@ -63,7 +64,7 @@ final class WireSpec extends FunSuite:
     val sid = SessionId(UUID.randomUUID())
     val uid = UserId(UUID.randomUUID())
     val msg: ServerMsg = ServerMsg.CursorUpdate(sid, uid, "alice", cursor = 12, selectionEnd = 15)
-    val j   = msg.asJson
+    val j = msg.asJson
     assertEquals(j.hcursor.downField("type").as[String], Right("cursor"))
     assertEquals(j.hcursor.downField("displayName").as[String], Right("alice"))
 
@@ -79,9 +80,15 @@ final class WireSpec extends FunSuite:
     val p   = Presence(sid, uid, "bob", cursor = 0, selectionEnd = 0, role = Role.Editor)
     val m1: ServerMsg = ServerMsg.PeerJoined(p)
     val m2: ServerMsg = ServerMsg.PeerLeft(sid)
-    val j1  = m1.asJson.noSpaces
-    val j2  = m2.asJson.noSpaces
+    val j1 = m1.asJson.noSpaces
+    val j2 = m2.asJson.noSpaces
     // We re-parse to defend against accidental noSpaces serialiser changes, and pin the
     // `type` discriminator value so the frontend's switch doesn't silently break.
-    assertEquals(parse(j1).toOption.flatMap(_.hcursor.downField("type").as[String].toOption), Some("peerJoined"))
-    assertEquals(parse(j2).toOption.flatMap(_.hcursor.downField("type").as[String].toOption), Some("peerLeft"))
+    assertEquals(
+      parse(j1).toOption.flatMap(_.hcursor.downField("type").as[String].toOption),
+      Some("peerJoined")
+    )
+    assertEquals(
+      parse(j2).toOption.flatMap(_.hcursor.downField("type").as[String].toOption),
+      Some("peerLeft")
+    )

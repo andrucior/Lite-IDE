@@ -48,8 +48,8 @@ object CollabSocket:
         wsb
           .withFilterPingPongs(true)
           .build(
-            send    = Stream.emit(textFrame(ServerMsg.ErrorMsg(s"no such document: $docId"))),
-            receive = (_: Stream[F, WebSocketFrame]) => Stream.empty,
+            send = Stream.emit(textFrame(ServerMsg.ErrorMsg(s"no such document: $docId"))),
+            receive = (_: Stream[F, WebSocketFrame]) => Stream.empty
           )
       case Some(doc) =>
         val userId = userIdOpt.getOrElse(UserId.random)
@@ -80,7 +80,7 @@ object CollabSocket:
               // Don't echo our own join back at us — the snapshot already lists every
               // peer that was present at handshake time.
               case ServerMsg.PeerJoined(p) => p.sessionId != sessionId
-              case _                       => true
+              case _ => true
             }
             .map(textFrame)
 
@@ -109,9 +109,9 @@ object CollabSocket:
     }
 
   private def handleClientMsg[F[_]: Async](
-      room:      DocumentRoom[F],
+      room: DocumentRoom[F],
       sessionId: SessionId,
-      msg:       ClientMsg,
+      msg: ClientMsg
   ): F[Unit] =
     msg match
       case ClientMsg.Edit(baseVersion, op) =>

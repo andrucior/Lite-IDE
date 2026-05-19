@@ -66,9 +66,8 @@ object DocumentService:
 
   /** In-memory implementation — sufficient for the first vertical slice.
     *
-    * Replace with a persisted backend (Postgres + Skunk, SQLite + magnum, …) once the
-    * storage layer exists; the interface above is intentionally small to keep that swap
-    * cheap.
+    * Replace with a persisted backend (Postgres + Skunk, SQLite + magnum, …) once the storage layer
+    * exists; the interface above is intentionally small to keep that swap cheap.
     */
   def inMemory[F[_]: Concurrent]: F[DocumentService[F]] =
     for

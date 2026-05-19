@@ -24,8 +24,8 @@ import com.liteide.ws.CollabSocket
   *   - `/api/documents`       — REST CRUD over document metadata + permissions.
   *   - `/ws/documents/:id`    — WebSocket entry into the live collaboration session.
   *
-  * Everything is wrapped in a permissive CORS layer so the Vite dev server (different
-  * origin) can talk to us during development. Tighten before production.
+  * Everything is wrapped in a permissive CORS layer so the Vite dev server (different origin) can
+  * talk to us during development. Tighten before production.
   */
 object Routes:
 
@@ -52,14 +52,14 @@ object Routes:
     given Encoder[DocumentSummary] = deriveEncoder[DocumentSummary]
 
   def all[F[_]: Async](
-      docs:  DocumentService[F],
+      docs: DocumentService[F],
       rooms: RoomRegistry[F],
-      wsb:   WebSocketBuilder2[F],
+      wsb: WebSocketBuilder2[F]
   ): HttpRoutes[F] =
     val tree = Router(
-      "/"              -> health[F],
+      "/" -> health[F],
       "/api/documents" -> documents[F](docs),
-      "/ws"            -> websockets[F](docs, rooms, wsb),
+      "/ws" -> websockets[F](docs, rooms, wsb)
     )
     CORS.policy.withAllowOriginAll.withAllowCredentials(false).apply(tree)
 
@@ -154,7 +154,7 @@ object Routes:
           case None => NotFound(Json.obj("error" -> InvalidId.asJson))
           case Some(id) =>
             docs.get(id).flatMap {
-              case None    => NotFound(Json.obj("error" -> "no such document".asJson))
+              case None => NotFound(Json.obj("error" -> "no such document".asJson))
               case Some(d) => Ok(d.asJson)
             }
     }
@@ -162,9 +162,9 @@ object Routes:
   // --------------------------------------------------------------- websockets
 
   private def websockets[F[_]: Async](
-      docs:  DocumentService[F],
+      docs: DocumentService[F],
       rooms: RoomRegistry[F],
-      wsb:   WebSocketBuilder2[F],
+      wsb: WebSocketBuilder2[F]
   ): HttpRoutes[F] =
     val dsl = new Http4sDsl[F] {}
     import dsl.*
@@ -173,7 +173,7 @@ object Routes:
 
     HttpRoutes.of[F] { case req @ GET -> Root / "documents" / idStr :? UserQ(userOpt) =>
       DocumentId.fromString(idStr) match
-        case None     => NotFound("invalid document id")
+        case None => NotFound("invalid document id")
         case Some(id) =>
           val userId = req.cookies
             .find(_.name == "lite-ide-user-id")

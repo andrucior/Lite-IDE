@@ -13,14 +13,13 @@ import com.liteide.protocol.Wire.ServerMsg
 /** The live, in-memory state of one document and the people editing it.
   *
   * Concurrency model:
-  *  - All mutations of `(text, version, history)` happen inside a per-room `Mutex` so that
-  *    transform-and-apply is atomic; the rest of the runtime stays free to do work in
-  *    parallel. The mutex is fine because each room has its own — fan-out across documents
-  *    scales naturally.
-  *  - Outbound fan-out uses an fs2 `Topic`, which is many-to-many and back-pressures per
-  *    subscriber. New joiners subscribe with a bounded buffer.
-  *  - Presence (cursors / peers) is a separate `Ref` because it doesn't affect text and
-  *    doesn't need to be serialised behind the same mutex.
+  *   - All mutations of `(text, version, history)` happen inside a per-room `Mutex` so that
+  *     transform-and-apply is atomic; the rest of the runtime stays free to do work in parallel.
+  *     The mutex is fine because each room has its own — fan-out across documents scales naturally.
+  *   - Outbound fan-out uses an fs2 `Topic`, which is many-to-many and back-pressures per
+  *     subscriber. New joiners subscribe with a bounded buffer.
+  *   - Presence (cursors / peers) is a separate `Ref` because it doesn't affect text and doesn't
+  *     need to be serialised behind the same mutex.
   */
 trait DocumentRoom[F[_]]:
   def documentId: DocumentId
@@ -59,14 +58,14 @@ object DocumentRoom:
 
   /** Build a fresh room seeded with the given text (version 0, empty history). */
   def make[F[_]: Concurrent](
-      docId:       DocumentId,
-      initialText: String,
+      docId: DocumentId,
+      initialText: String
   ): F[DocumentRoom[F]] =
     for
-      state    <- Ref.of[F, State](State(initialText, 0, Vector.empty))
+      state <- Ref.of[F, State](State(initialText, 0, Vector.empty))
       presence <- Ref.of[F, Map[SessionId, Presence]](Map.empty)
-      topic    <- Topic[F, ServerMsg]
-      mutex    <- Mutex[F]
+      topic <- Topic[F, ServerMsg]
+      mutex <- Mutex[F]
     yield new DocumentRoom[F]:
 
       val documentId: DocumentId = docId
@@ -92,7 +91,7 @@ object DocumentRoom:
             // back as a stream finalizer.
             allocated <- topic.subscribeAwait(64).allocated
             (rawStream, release) = allocated
-            s     <- state.get
+            s <- state.get
             peers <- presence.get
             me     = Presence(sessionId, userId, displayName, cursor = 0, selectionEnd = 0, role = role)
             _     <- presence.update(_.updated(sessionId, me))
@@ -116,15 +115,16 @@ object DocumentRoom:
 
       def leave(sessionId: SessionId): F[Unit] =
         for
-          removed <- presence.modify { m => (m.removed(sessionId), m.contains(sessionId)) }
-          _       <- if removed then topic.publish1(ServerMsg.PeerLeft(sessionId)).void
-                     else Concurrent[F].unit
+          removed <- presence.modify(m => (m.removed(sessionId), m.contains(sessionId)))
+          _ <-
+            if removed then topic.publish1(ServerMsg.PeerLeft(sessionId)).void
+            else Concurrent[F].unit
         yield ()
 
       def submitEdit(
           authorSessionId: SessionId,
-          baseVersion:     Int,
-          op:              Op,
+          baseVersion: Int,
+          op: Op
       ): F[Either[String, Int]] =
         mutex.lock.surround {
           // Role check: observers cannot write. We read presence under the mutex so the
@@ -162,27 +162,29 @@ object DocumentRoom:
         }
 
       def submitCursor(sessionId: SessionId, pos: Int, selectionEnd: Int): F[Unit] =
-        presence.modify { m =>
-          m.get(sessionId) match
-            case None    => (m, None)
+        presence
+          .modify { m =>
+            m.get(sessionId) match
+              case None => (m, None)
+              case Some(p) =>
+                val updated = p.copy(cursor = pos, selectionEnd = selectionEnd)
+                (m.updated(sessionId, updated), Some(updated))
+          }
+          .flatMap {
+            case None => Concurrent[F].unit
             case Some(p) =>
-              val updated = p.copy(cursor = pos, selectionEnd = selectionEnd)
-              (m.updated(sessionId, updated), Some(updated))
-        }.flatMap {
-          case None    => Concurrent[F].unit
-          case Some(p) =>
-            topic
-              .publish1(
-                ServerMsg.CursorUpdate(
-                  sessionId    = p.sessionId,
-                  userId       = p.userId,
-                  displayName  = p.displayName,
-                  cursor       = p.cursor,
-                  selectionEnd = p.selectionEnd,
+              topic
+                .publish1(
+                  ServerMsg.CursorUpdate(
+                    sessionId = p.sessionId,
+                    userId = p.userId,
+                    displayName = p.displayName,
+                    cursor = p.cursor,
+                    selectionEnd = p.selectionEnd
+                  )
                 )
-              )
-              .void
-        }
+                .void
+          }
 
       def snapshot: F[(Int, String)] =
         state.get.map(s => (s.version, s.text))

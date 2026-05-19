@@ -5,14 +5,14 @@ import io.circe.generic.semiauto.*
 
 import com.liteide.domain.Ids.{DocumentId, SessionId, UserId}
 
-/** A single connected client editing one document. One user may hold several sessions
-  * (multiple tabs / devices) — they are tracked independently so cursors don't collide.
+/** A single connected client editing one document. One user may hold several sessions (multiple
+  * tabs / devices) — they are tracked independently so cursors don't collide.
   */
 final case class Session(
-    id:          SessionId,
-    userId:      UserId,
-    documentId:  DocumentId,
-    displayName: String,
+    id: SessionId,
+    userId: UserId,
+    documentId: DocumentId,
+    displayName: String
 )
 
 object Session:
