@@ -90,6 +90,12 @@ object Wire:
     /** A participant disconnected. */
     case PeerLeft(sessionId: SessionId)
 
+    /** An owner changed a connected user's role live, or revoked their access entirely
+      * (`role = None`). Clients update that user's editing rights immediately; the affected
+      * user themselves leaves the document when their access is revoked.
+      */
+    case RoleChanged(userId: UserId, role: Option[Role])
+
     /** Server-side error reporting (bad op, parse failure, …). */
     case ErrorMsg(reason: String)
 
@@ -126,6 +132,12 @@ object Wire:
         Json.obj("type" -> "peerJoined".asJson, "presence" -> p.asJson)
       case ServerMsg.PeerLeft(sid) =>
         Json.obj("type" -> "peerLeft".asJson, "sessionId" -> sid.asJson)
+      case ServerMsg.RoleChanged(uid, roleOpt) =>
+        Json.obj(
+          "type"   -> "roleChanged".asJson,
+          "userId" -> uid.asJson,
+          "role"   -> roleOpt.asJson, // null when access is revoked
+        )
       case ServerMsg.ErrorMsg(reason) =>
         Json.obj("type" -> "error".asJson, "reason" -> reason.asJson)
     }

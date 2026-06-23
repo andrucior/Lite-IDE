@@ -31,7 +31,9 @@ function colourFor(sessionId) {
  *      so this is defence-in-depth rather than the sole guard.
  */
 
-export default function CodeEditor({ document: doc, userName, userId, onBack }) {
+export default function CodeEditor({ document: doc, account, onBack }) {
+  const userName = account.displayName
+  const userId   = account.id
   const editorRef = useRef(null)
   const monacoRef = useRef(null)
   const decorationsRef = useRef(null) // monaco IEditorDecorationsCollection
@@ -39,7 +41,7 @@ export default function CodeEditor({ document: doc, userName, userId, onBack }) 
   const [showPerms, setShowPerms] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
 
-  const { status, snapshot, peers, role, sessionId, applyingRemote, sendChanges, sendCursor } =
+  const { status, snapshot, peers, role, revoked, sessionId, applyingRemote, sendChanges, sendCursor } =
     useCollab(doc?.id, userName, editorRef, monacoRef)
 
   const isObserver = role === 'observer'
@@ -124,6 +126,18 @@ export default function CodeEditor({ document: doc, userName, userId, onBack }) 
 
   function formatCode() {
     editorRef.current?.getAction('editor.action.formatDocument')?.run()
+  }
+
+  // The owner removed our access while we were in here — bounce back to the list with a
+  // short explanation rather than leaving a now-forbidden editor on screen.
+  if (revoked) {
+    return (
+      <div className="lobby">
+        <h1>Access removed</h1>
+        <p className="muted">The owner removed your access to “{doc.title}”.</p>
+        <button onClick={onBack}>← Back to your workspaces</button>
+      </div>
+    )
   }
 
   // Wait for the snapshot so we never let the user type into a doc whose version is
@@ -215,8 +229,10 @@ CodeEditor.propTypes = {
     id: PropTypes.string.isRequired,
     title: PropTypes.string.isRequired,
   }).isRequired,
-  userName: PropTypes.string.isRequired,
-  userId: PropTypes.string.isRequired,
+  account: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    displayName: PropTypes.string,
+  }).isRequired,
   onBack: PropTypes.func.isRequired,
 }
 

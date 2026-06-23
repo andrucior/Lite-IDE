@@ -18,10 +18,11 @@ import com.liteide.service.{DocumentRoom, DocumentService, RoomRegistry}
   *
   * Lifecycle of one connection:
   *
-  *   1. URL is `/ws/documents/:id?user=<name>&userId=<uuid>`.
-  *   2. We resolve the effective `Role` for `userId` via `DocumentService`:
-  *      Owner if the user created the document, an explicit grant if set, otherwise
-  *      the default `Editor` (open-access model).
+  *   1. URL is `/ws/documents/:id?user=<name>`. The user id comes from the verified JWT auth
+  *      cookie (the route rejects the upgrade if it is missing/invalid), not the query string.
+  *   2. We resolve the effective `Role` for `userId` via `DocumentService.accessRole`:
+  *      Owner if the user created the document, an explicit grant if they were added as a member,
+  *      otherwise no access — the connection is rejected with a single error frame.
   *   3. We look up (or lazily create) the `DocumentRoom`.
   *   4. We mint a fresh `SessionId`, register presence with the resolved role, and
   *      ship a `Snapshot` that includes the role so the client can enforce read-only
@@ -35,30 +36,38 @@ object CollabSocket:
   private val logger = org.slf4j.LoggerFactory.getLogger("com.liteide.ws.CollabSocket")
 
   def route[F[_]: Async](
-      wsb:       WebSocketBuilder2[F],
-      rooms:     RoomRegistry[F],
-      docs:      DocumentService[F],
-      docId:     DocumentId,
-      userName:  String,
-      userIdOpt: Option[UserId],
+      wsb:      WebSocketBuilder2[F],
+      rooms:    RoomRegistry[F],
+      docs:     DocumentService[F],
+      docId:    DocumentId,
+      userName: String,
+      userId:   UserId,
   ): F[Response[F]] =
     docs.get(docId).flatMap {
       case None =>
-        // No such document — emit a single error frame and close.
-        wsb
-          .withFilterPingPongs(true)
-          .build(
-            send = Stream.emit(textFrame(ServerMsg.ErrorMsg(s"no such document: $docId"))),
-            receive = (_: Stream[F, WebSocketFrame]) => Stream.empty
-          )
+        closeWith(wsb, s"no such document: $docId")
       case Some(doc) =>
-        val userId = userIdOpt.getOrElse(UserId.random)
-        docs.getRole(docId, userId).flatMap { role =>
-          rooms.getOrCreate(docId, doc.contents).flatMap { room =>
-            openConnection(wsb, room, docs, userName, userId, role)
-          }
+        docs.accessRole(docId, userId).flatMap {
+          case None =>
+            // Authenticated, but not the owner and not a member of this document.
+            closeWith(wsb, "forbidden: you do not have access to this document")
+          case Some(role) =>
+            rooms.getOrCreate(docId, doc.contents).flatMap { room =>
+              openConnection(wsb, room, docs, userName, userId, role)
+            }
         }
     }
+
+  /** Build a WebSocket that emits one error frame and accepts nothing — used to reject a
+    * connection while still completing the upgrade so the client sees a reason.
+    */
+  private def closeWith[F[_]](wsb: WebSocketBuilder2[F], reason: String): F[Response[F]] =
+    wsb
+      .withFilterPingPongs(true)
+      .build(
+        send = Stream.emit(textFrame(ServerMsg.ErrorMsg(reason))),
+        receive = (_: Stream[F, WebSocketFrame]) => Stream.empty
+      )
 
   private def openConnection[F[_]: Async](
       wsb:      WebSocketBuilder2[F],

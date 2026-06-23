@@ -28,9 +28,11 @@ export function useCollab(documentId, userName, editorRef, monacoRef) {
   const [snapshot, setSnapshot] = useState(null)
   const [peers,    setPeers]    = useState([])
   const [role,     setRole]     = useState(null)
+  const [revoked,  setRevoked]  = useState(false) // owner removed our access mid-session
 
   const wsRef          = useRef(null)
   const sessionIdRef   = useRef(null)
+  const userIdRef      = useRef(null)
   const versionRef     = useRef(0)
   const applyingRemote = useRef(false) // suppresses the change listener while we mutate
   const peersRef       = useRef(new Map()) // sessionId -> Presence (excluding self)
@@ -68,6 +70,7 @@ export function useCollab(documentId, userName, editorRef, monacoRef) {
       switch (msg.type) {
         case 'snapshot': {
           sessionIdRef.current = msg.sessionId
+          userIdRef.current    = msg.userId
           versionRef.current   = msg.version
           setSnapshot({
             text:      msg.text,
@@ -122,6 +125,25 @@ export function useCollab(documentId, userName, editorRef, monacoRef) {
           setPeers([...peersRef.current.values()])
           break
         }
+        case 'roleChanged': {
+          // The owner changed someone's role live. `role === null` means access was revoked.
+          const uid = msg.userId
+          const newRole = msg.role
+          if (uid === userIdRef.current) {
+            if (newRole === null) setRevoked(true)
+            else setRole(newRole)
+          } else {
+            let changed = false
+            for (const [sid, p] of peersRef.current) {
+              if (p.userId === uid && newRole) {
+                peersRef.current.set(sid, { ...p, role: newRole })
+                changed = true
+              }
+            }
+            if (changed) setPeers([...peersRef.current.values()])
+          }
+          break
+        }
         case 'error': {
           // Non-fatal: log; a "no such document" handshake error will be followed by
           // the server closing the socket and our `close` listener flipping status.
@@ -173,6 +195,7 @@ export function useCollab(documentId, userName, editorRef, monacoRef) {
     snapshot,
     peers,
     role,
+    revoked,
     sessionId: sessionIdRef.current,
     applyingRemote, // ref — Editor reads it to suppress its own change emit
     sendChanges,

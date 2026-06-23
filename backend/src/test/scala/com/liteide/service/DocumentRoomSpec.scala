@@ -63,6 +63,56 @@ final class DocumentRoomSpec extends CatsEffectSuite:
       }
     }
 
+  test("applyRoleChange downgrades a connected user to observer and broadcasts it"):
+    val uid = UserId.random
+    val sid = SessionId.random
+    for
+      room        <- DocumentRoom.make[IO](docId, "abc")
+      joined      <- room.join(sid, uid, "alice", Role.Editor)
+      (_, stream)  = joined
+      q           <- Queue.unbounded[IO, ServerMsg]
+      pump        <- stream.evalMap(q.offer).compile.drain.start
+      _           <- q.take.timeout(2.seconds) // our own PeerJoined echo
+      _           <- room.applyRoleChange(uid, Some(Role.Observer))
+      msg         <- q.take.timeout(2.seconds)
+      _            = assertEquals(msg, ServerMsg.RoleChanged(uid, Some(Role.Observer)))
+      edit        <- room.submitEdit(sid, 0, Op.Insert(0, "x"))
+      _            = assert(edit.isLeft, "an edit from the now-observer session must be rejected")
+      _           <- pump.cancel
+    yield ()
+
+  test("applyRoleChange with None revokes access and broadcasts a null role"):
+    val uid = UserId.random
+    val sid = SessionId.random
+    for
+      room        <- DocumentRoom.make[IO](docId, "abc")
+      joined      <- room.join(sid, uid, "alice", Role.Editor)
+      (_, stream)  = joined
+      q           <- Queue.unbounded[IO, ServerMsg]
+      pump        <- stream.evalMap(q.offer).compile.drain.start
+      _           <- q.take.timeout(2.seconds) // PeerJoined echo
+      _           <- room.applyRoleChange(uid, None)
+      msg         <- q.take.timeout(2.seconds)
+      _            = assertEquals(msg, ServerMsg.RoleChanged(uid, None))
+      edit        <- room.submitEdit(sid, 0, Op.Insert(0, "x"))
+      _            = assert(edit.isLeft, "a revoked session must not be able to edit")
+      _           <- pump.cancel
+    yield ()
+
+  test("applyRoleChange is a no-op when the target has no session in the room"):
+    for
+      room        <- DocumentRoom.make[IO](docId, "abc")
+      joined      <- room.join(SessionId.random, UserId.random, "alice", Role.Editor)
+      (_, stream)  = joined
+      q           <- Queue.unbounded[IO, ServerMsg]
+      pump        <- stream.evalMap(q.offer).compile.drain.start
+      _           <- q.take.timeout(2.seconds) // PeerJoined echo
+      _           <- room.applyRoleChange(UserId.random, Some(Role.Observer))
+      timedOut    <- q.take.timeout(200.millis).attempt.map(_.isLeft)
+      _            = assert(timedOut, "no broadcast expected for a user who isn't connected")
+      _           <- pump.cancel
+    yield ()
+
   test("a fresh edit bumps the version and broadcasts Applied"):
     withSubscriber("ab") { (room, sid, q) =>
       for
