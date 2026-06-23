@@ -1,112 +1,131 @@
 // Thin wrapper over the backend REST surface. The dev server proxies `/api/*` to the
 // Scala backend (see vite.config.js); in production the same origin will serve both.
+//
+// Auth is cookie-based: register/login set an HttpOnly JWT cookie that the browser then
+// sends automatically with every same-origin request (including the collab WebSocket
+// upgrade). The frontend never sees or stores the token — it only tracks the account
+// object returned by `/api/auth/me`.
 
 // Whitelist of characters allowed in a display name: ASCII letters/digits/spaces and a
 // small punctuation set. Defined as a module-level RegExp literal so static analysers
 // can recognise it as input validation rather than an opaque transform.
 const USER_NAME_RE = /^[A-Za-z0-9 _.-]{1,40}$/
 
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 /** Validate a user-controlled display name as a strict whitelist. Returns the value
  *  unchanged if it matches the allowed pattern (printable ASCII letters/digits/spaces/
  *  ._-, length 1–40), otherwise the empty string. Using regex `.test()` as a
  *  boolean gate breaks taint-analysis flows that would otherwise carry browser-storage
- *  or form data through to a sink (localStorage / WebSocket URL). */
+ *  or form data through to a sink (the WebSocket URL). */
 export function sanitizeUserName(raw) {
   if (typeof raw !== 'string') return ''
   return USER_NAME_RE.test(raw) ? raw : ''
 }
 
-/** Return the stable user ID for this browser, generating and persisting one on first use.
- *  The ID is a UUID stored in localStorage under a fixed key. Sharing this ID with a
- *  document owner lets them grant or restrict access for this browser.
- *
- *  The same value is also written to a cookie so the browser sends it automatically
- *  during the WebSocket upgrade request. The backend reads it from the Cookie header,
- *  which means the frontend never has to embed it in a user-constructed URL. */
-export function getOrCreateUserId() {
-  const KEY = 'lite-ide-user-id'
-  let id = localStorage.getItem(KEY)
-  if (!id || !UUID_RE.test(id)) {
-    id = crypto.randomUUID()
-    localStorage.setItem(KEY, id)
+/** Error carrying the HTTP status so callers can branch on it (e.g. 401 → logged out,
+ *  409 → email taken). `message` is the backend's `error` field when present. */
+export class ApiError extends Error {
+  constructor(status, message) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
   }
-  document.cookie = `${KEY}=${id}; path=/; max-age=31536000; SameSite=Lax`
-  return id
 }
 
-export async function listDocuments() {
-  const r = await fetch('/api/documents')
-  if (!r.ok) throw new Error(`listDocuments: HTTP ${r.status}`)
-  return r.json()
+/** Single fetch helper. Cookies ride along automatically (same-origin default). Throws
+ *  `ApiError` on any non-2xx, using the backend's `{ "error": ... }` body as the message
+ *  when it has one. */
+async function request(path, { method = 'GET', body } = {}) {
+  const opts = { method, headers: {} }
+  if (body !== undefined) {
+    opts.headers['content-type'] = 'application/json'
+    opts.body = JSON.stringify(body)
+  }
+  const r = await fetch(path, opts)
+  if (!r.ok) {
+    let detail = `HTTP ${r.status}`
+    try {
+      const j = await r.json()
+      if (j && typeof j.error === 'string') detail = j.error
+    } catch { /* response had no JSON body */ }
+    throw new ApiError(r.status, detail)
+  }
+  if (r.status === 204) return null
+  const text = await r.text()
+  return text ? JSON.parse(text) : null
 }
 
-export async function createDocument(title, contents = '', creatorUserId = '') {
-  const r = await fetch('/api/documents', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ title, contents, creatorUserId }),
-  })
-  if (!r.ok) throw new Error(`createDocument: HTTP ${r.status}`)
-  return r.json()
+// ------------------------------------------------------------------ auth
+
+/** Current account `{ id, email, displayName }`, or `null` if not logged in. */
+export async function me() {
+  try {
+    return await request('/api/auth/me')
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 401) return null
+    throw e
+  }
 }
 
-export async function getDocument(id) {
-  const r = await fetch(`/api/documents/${id}`)
-  if (!r.ok) throw new Error(`getDocument: HTTP ${r.status}`)
-  return r.json()
+export function register(email, displayName, password) {
+  return request('/api/auth/register', { method: 'POST', body: { email, displayName, password } })
 }
 
-export async function getDocumentHistory(id) {
-  const r = await fetch(`/api/documents/${id}/history`)
-  if (!r.ok) throw new Error(`getDocumentHistory: HTTP ${r.status}`)
-  return r.json()
+export function login(email, password) {
+  return request('/api/auth/login', { method: 'POST', body: { email, password } })
 }
 
-export async function getHistoryDiff(id, fromVersion, toVersion) {
-  const r = await fetch(`/api/documents/${id}/history/diff?from=${fromVersion}&to=${toVersion}`)
-  if (!r.ok) throw new Error(`getHistoryDiff: HTTP ${r.status}`)
-  return r.json()
+export function logout() {
+  return request('/api/auth/logout', { method: 'POST' })
 }
 
-/** Fetch the permission list for a document.
+// -------------------------------------------------------------- documents
+
+/** Documents the logged-in user can access (owned + shared with them). */
+export function listDocuments() {
+  return request('/api/documents')
+}
+
+/** Create a document. The owner is the authenticated user — there is no owner field to
+ *  pass; the backend reads it from the auth cookie. */
+export function createDocument(title, contents = '') {
+  return request('/api/documents', { method: 'POST', body: { title, contents } })
+}
+
+export function getDocument(id) {
+  return request(`/api/documents/${id}`)
+}
+
+export function getDocumentHistory(id) {
+  return request(`/api/documents/${id}/history`)
+}
+
+export function getHistoryDiff(id, fromVersion, toVersion) {
+  return request(`/api/documents/${id}/history/diff?from=${fromVersion}&to=${toVersion}`)
+}
+
+// ------------------------------------------------------------ permissions
+
+/** Fetch the membership list for a document.
  *  Returns `{ ownerId: string, permissions: Array<{ userId: string, role: string }> }`. */
-export async function getPermissions(docId) {
-  const r = await fetch(`/api/documents/${docId}/permissions`)
-  if (!r.ok) throw new Error(`getPermissions: HTTP ${r.status}`)
-  return r.json()
+export function getPermissions(docId) {
+  return request(`/api/documents/${docId}/permissions`)
 }
 
-/** Grant or restrict a user's role on a document. Only the owner may call this.
- *  `role` must be `"editor"` or `"observer"`. */
-export async function setPermission(docId, actingUserId, targetUserId, role) {
-  const r = await fetch(`/api/documents/${docId}/permissions`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ actingUserId, userId: targetUserId, role }),
-  })
-  if (!r.ok) throw new Error(`setPermission: HTTP ${r.status}`)
-  return r.json()
+/** Add a person to a document by their login email. Owner only.
+ *  `role` is `"editor"` (default) or `"observer"`. */
+export function addMember(docId, email, role = 'editor') {
+  return request(`/api/documents/${docId}/members`, { method: 'POST', body: { email, role } })
 }
 
-/** Remove an explicit permission grant for a user, reverting them to the default Editor role.
- *  Only the owner may call this. */
-export async function removePermission(docId, actingUserId, targetUserId) {
-  const url = `/api/documents/${docId}/permissions/${encodeURIComponent(targetUserId)}?actingUserId=${encodeURIComponent(actingUserId)}`
-  const r = await fetch(url, { method: 'DELETE' })
-  if (!r.ok) throw new Error(`removePermission: HTTP ${r.status}`)
+/** Change an existing member's role. Owner only. `role` is `"editor"` or `"observer"`.
+ *  The acting user comes from the auth cookie. */
+export function setPermission(docId, targetUserId, role) {
+  return request(`/api/documents/${docId}/permissions`, { method: 'POST', body: { userId: targetUserId, role } })
 }
 
-export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-/** Build the WebSocket URL for a document. We compute it against `globalThis.location` so it
- *  works identically in dev (Vite proxy) and prod (same origin reverse proxy). */
-export function wsUrl(documentId, userName, userId) {
-  const proto = globalThis.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  // All three user-supplied parameters are validated against strict whitelists before
-  // being embedded in the URL, so no user-controlled value reaches the WebSocket sink.
-  if (!UUID_RE.test(documentId ?? '')) throw new Error('wsUrl: invalid documentId')
-  const docId = documentId
-  const user  = encodeURIComponent(sanitizeUserName(userName ?? ''))
-  const uid   = encodeURIComponent(UUID_RE.test(userId ?? '') ? userId : '')
-  return `${proto}//${globalThis.location.host}/ws/documents/${docId}?user=${user}&userId=${uid}`
+/** Remove a member, revoking their access. Owner only. */
+export function removePermission(docId, targetUserId) {
+  return request(`/api/documents/${docId}/permissions/${encodeURIComponent(targetUserId)}`, { method: 'DELETE' })
 }

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import PropTypes from 'prop-types'
-import { createDocument, listDocuments } from './api.js'
+import { createDocument, listDocuments, logout } from './api.js'
 
-/** Lobby screen: pick a document or create a new one. */
-export default function DocumentList({ onOpen, userId }) {
+/** Lobby screen: the user's own and shared workspaces, plus a create form. */
+export default function DocumentList({ account, onOpen, onLoggedOut }) {
   const [docs,     setDocs]     = useState(null) // null = loading, [] = loaded empty
   const [error,    setError]    = useState(null)
   const [title,    setTitle]    = useState('')
@@ -26,7 +26,7 @@ export default function DocumentList({ onOpen, userId }) {
     if (!title.trim()) return
     setCreating(true)
     try {
-      const doc = await createDocument(title.trim(), '', userId)
+      const doc = await createDocument(title.trim())
       setTitle('')
       await refresh()
       onOpen(doc)
@@ -37,10 +37,22 @@ export default function DocumentList({ onOpen, userId }) {
     }
   }
 
+  async function handleLogout() {
+    try { await logout() } catch { /* clear the session locally regardless */ }
+    onLoggedOut()
+  }
+
   return (
     <div className="lobby">
-      <h1>Lite-IDE</h1>
-      <p className="muted">Pick a document to start editing, or create a new one.</p>
+      <div className="account-bar">
+        <span className="muted">
+          Signed in as <strong>{account.displayName || account.email}</strong>
+        </span>
+        <button onClick={handleLogout}>Log out</button>
+      </div>
+
+      <h1>Your workspaces</h1>
+      <p className="muted">Open one of your documents, or create a new one.</p>
 
       <form className="create-row" onSubmit={onCreate}>
         <input
@@ -59,7 +71,7 @@ export default function DocumentList({ onOpen, userId }) {
       {docs === null ? (
         <div className="loading">Loading…</div>
       ) : docs.length === 0 ? (
-        <div className="muted">No documents yet.</div>
+        <div className="muted">No workspaces yet — create one above, or ask an owner to add you.</div>
       ) : (
         <ul className="doc-list">
           {docs.map((d) => (
@@ -77,6 +89,11 @@ export default function DocumentList({ onOpen, userId }) {
 }
 
 DocumentList.propTypes = {
+  account: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    email: PropTypes.string.isRequired,
+    displayName: PropTypes.string,
+  }).isRequired,
   onOpen: PropTypes.func.isRequired,
-  userId: PropTypes.string.isRequired,
+  onLoggedOut: PropTypes.func.isRequired,
 }

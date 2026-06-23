@@ -31,7 +31,9 @@ function colourFor(sessionId) {
  *      so this is defence-in-depth rather than the sole guard.
  */
 
-export default function CodeEditor({ document: doc, userName, userId, onBack }) {
+export default function CodeEditor({ document: doc, account, onBack }) {
+  const userName = account.displayName
+  const userId   = account.id
   const editorRef = useRef(null)
   const monacoRef = useRef(null)
   const decorationsRef = useRef(null) // monaco IEditorDecorationsCollection
@@ -215,8 +217,10 @@ CodeEditor.propTypes = {
     id: PropTypes.string.isRequired,
     title: PropTypes.string.isRequired,
   }).isRequired,
-  userName: PropTypes.string.isRequired,
-  userId: PropTypes.string.isRequired,
+  account: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    displayName: PropTypes.string,
+  }).isRequired,
   onBack: PropTypes.func.isRequired,
 }
 

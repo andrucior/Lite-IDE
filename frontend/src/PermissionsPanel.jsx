@@ -1,21 +1,20 @@
 import { useCallback, useEffect, useState } from 'react'
 import PropTypes from 'prop-types'
-import { getPermissions, removePermission, setPermission } from './api.js'
+import { addMember, getPermissions, removePermission, setPermission } from './api.js'
 
 /**
- * Side panel for viewing and managing document permissions.
+ * Side panel for viewing and managing who can access a document.
  *
- * Owners see the full control UI: current explicit grants, connected peers with their
- * roles, and a form to restrict any user to Observer.
- * Non-owners see their own user ID (so they can share it with the owner) and their
- * current role on this document.
+ * Documents are private: only the owner and explicitly added members can see or edit
+ * them. Owners get the full control UI — add people by email, change a member's role,
+ * remove a member, and adjust connected peers. Everyone sees their own current role.
  */
 export default function PermissionsPanel({ documentId, userId, role, peers, onClose }) {
-  const [perms,    setPerms]   = useState(null) // { ownerId, permissions: [{userId, role}] }
-  const [error,    setError]   = useState(null)
-  const [newId,    setNewId]   = useState('')
-  const [newRole,  setNewRole] = useState('observer')
-  const [saving,   setSaving]  = useState(false)
+  const [perms,    setPerms]    = useState(null) // { ownerId, permissions: [{userId, role}] }
+  const [error,    setError]    = useState(null)
+  const [email,    setEmail]    = useState('')
+  const [newRole,  setNewRole]  = useState('editor')
+  const [saving,   setSaving]   = useState(false)
 
   const isOwner = role === 'owner'
 
@@ -28,13 +27,14 @@ export default function PermissionsPanel({ documentId, userId, role, peers, onCl
 
   useEffect(() => { load() }, [load])
 
-  async function handleSet(e) {
+  async function handleAdd(e) {
     e.preventDefault()
-    if (!newId.trim()) return
+    if (!email.trim()) return
     setSaving(true)
+    setError(null)
     try {
-      await setPermission(documentId, userId, newId.trim(), newRole)
-      setNewId('')
+      await addMember(documentId, email.trim(), newRole)
+      setEmail('')
       load()
     } catch (e) {
       setError(e.message)
@@ -46,7 +46,7 @@ export default function PermissionsPanel({ documentId, userId, role, peers, onCl
   async function handleRemove(targetId) {
     setSaving(true)
     try {
-      await removePermission(documentId, userId, targetId)
+      await removePermission(documentId, targetId)
       load()
     } catch (e) {
       setError(e.message)
@@ -59,7 +59,7 @@ export default function PermissionsPanel({ documentId, userId, role, peers, onCl
     const next = peerRole === 'observer' ? 'editor' : 'observer'
     setSaving(true)
     try {
-      await setPermission(documentId, userId, peerId, next)
+      await setPermission(documentId, peerId, next)
       load()
     } catch (e) {
       setError(e.message)
@@ -68,13 +68,13 @@ export default function PermissionsPanel({ documentId, userId, role, peers, onCl
     }
   }
 
-  let explicitPermsContent
+  let membersContent
   if (perms === null) {
-    explicitPermsContent = <p className="muted">Loading…</p>
+    membersContent = <p className="muted">Loading…</p>
   } else if (perms.permissions.length === 0) {
-    explicitPermsContent = <p className="muted">No restrictions set — everyone defaults to Editor.</p>
+    membersContent = <p className="muted">No one else has been added yet.</p>
   } else {
-    explicitPermsContent = (
+    membersContent = (
       <ul className="perms-list">
         {perms.permissions.map(({ userId: uid, role: r }) => (
           <li key={uid} className="perms-row">
@@ -83,7 +83,7 @@ export default function PermissionsPanel({ documentId, userId, role, peers, onCl
             <button
               disabled={saving}
               onClick={() => handleRemove(uid)}
-              title="Remove restriction (reverts to Editor)"
+              title="Remove this member's access"
             >
               Remove
             </button>
@@ -96,47 +96,59 @@ export default function PermissionsPanel({ documentId, userId, role, peers, onCl
   return (
     <div className="perms-panel">
       <div className="perms-header">
-        <strong>Permissions</strong>
+        <strong>Sharing</strong>
         <button onClick={onClose} title="Close">✕</button>
       </div>
 
       <div className="perms-body">
         {error && <p className="error">{error}</p>}
 
-        {/* Your identity — always shown so the user can share their ID */}
-        <section className="perms-section">
-          <h4>Your user ID</h4>
-          <div className="perms-id-row">
-            <code className="perms-uid">{userId}</code>
-            <button
-              className="perms-copy"
-              onClick={() => navigator.clipboard.writeText(userId)}
-              title="Copy to clipboard"
-            >
-              Copy
-            </button>
-          </div>
-          <p className="muted perms-hint">
-            Share this ID with a document owner to receive a specific role.
-          </p>
-        </section>
-
-        {/* Current role indicator */}
+        {/* Current role indicator — always shown */}
         <section className="perms-section">
           <h4>Your role</h4>
           <span className={`role-badge role-${role}`}>{role ?? '…'}</span>
           {role === 'observer' && (
             <p className="muted perms-hint">You have read-only access to this document.</p>
           )}
+          {role === 'editor' && (
+            <p className="muted perms-hint">You were added to this workspace by its owner.</p>
+          )}
         </section>
 
         {/* Owner-only controls */}
         {isOwner && (
           <>
+            {/* Add a person by email */}
+            <section className="perms-section">
+              <h4>Add someone</h4>
+              <form className="perms-form" onSubmit={handleAdd}>
+                <input
+                  type="email"
+                  placeholder="their email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                />
+                <select value={newRole} onChange={e => setNewRole(e.target.value)}>
+                  <option value="editor">Editor (read + write)</option>
+                  <option value="observer">Observer (read-only)</option>
+                </select>
+                <button type="submit" disabled={saving || !email.trim()}>
+                  {saving ? 'Adding…' : 'Add to workspace'}
+                </button>
+              </form>
+              <p className="muted perms-hint">They must already have a Lite-IDE account.</p>
+            </section>
+
+            {/* Members */}
+            <section className="perms-section">
+              <h4>Members</h4>
+              {membersContent}
+            </section>
+
             {/* Connected peers */}
             {peers.length > 0 && (
               <section className="perms-section">
-                <h4>Connected users</h4>
+                <h4>Connected now</h4>
                 <ul className="perms-list">
                   {peers.map(p => (
                     <li key={p.sessionId} className="perms-row">
@@ -159,31 +171,6 @@ export default function PermissionsPanel({ documentId, userId, role, peers, onCl
                 </ul>
               </section>
             )}
-
-            {/* Explicit grants */}
-            <section className="perms-section">
-              <h4>Explicit permissions</h4>
-              {explicitPermsContent}
-            </section>
-
-            {/* Add / change permission */}
-            <section className="perms-section">
-              <h4>Set role for user</h4>
-              <form className="perms-form" onSubmit={handleSet}>
-                <input
-                  placeholder="User ID (UUID)"
-                  value={newId}
-                  onChange={e => setNewId(e.target.value)}
-                />
-                <select value={newRole} onChange={e => setNewRole(e.target.value)}>
-                  <option value="observer">Observer (read-only)</option>
-                  <option value="editor">Editor (read + write)</option>
-                </select>
-                <button type="submit" disabled={saving || !newId.trim()}>
-                  {saving ? 'Saving…' : 'Set'}
-                </button>
-              </form>
-            </section>
           </>
         )}
       </div>
