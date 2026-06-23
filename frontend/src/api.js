@@ -6,15 +6,18 @@
 // upgrade). The frontend never sees or stores the token — it only tracks the account
 // object returned by `/api/auth/me`.
 
-// Whitelist of characters allowed in a display name: ASCII letters/digits/spaces and a
-// small punctuation set. Defined as a module-level RegExp literal so static analysers
-// can recognise it as input validation rather than an opaque transform.
-const USER_NAME_RE = /^[A-Za-z0-9 _.-]{1,40}$/
+// Whitelist of characters allowed in a display name: Unicode letters/digits (so names with
+// diacritics like "Paweł" or "José" are accepted), plus spaces and a small punctuation set.
+// The `u` flag enables the \p{...} Unicode property escapes. Control characters, quotes,
+// angle brackets and slashes are all excluded, so this stays a strict whitelist. Defined as
+// a module-level RegExp literal so static analysers can recognise it as input validation
+// rather than an opaque transform.
+const USER_NAME_RE = /^[\p{L}\p{N} _.-]{1,40}$/u
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /** Validate a user-controlled display name as a strict whitelist. Returns the value
- *  unchanged if it matches the allowed pattern (printable ASCII letters/digits/spaces/
+ *  unchanged if it matches the allowed pattern (Unicode letters/digits, spaces and
  *  ._-, length 1–40), otherwise the empty string. Using regex `.test()` as a
  *  boolean gate breaks taint-analysis flows that would otherwise carry browser-storage
  *  or form data through to a sink (the WebSocket URL). */
