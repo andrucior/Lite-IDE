@@ -13,9 +13,10 @@ import org.http4s.server.Router
 import org.http4s.server.middleware.CORS
 import org.http4s.server.websocket.WebSocketBuilder2
 
+import com.liteide.auth.JwtAuth
 import com.liteide.domain.{HistoryEntry, Role}
 import com.liteide.domain.Ids.{DocumentId, UserId}
-import com.liteide.service.{DocumentService, RoomRegistry}
+import com.liteide.service.{AuthService, DocumentService, RoomRegistry}
 import com.liteide.ws.CollabSocket
 
 /** Top-level HTTP routing tree.
@@ -54,14 +55,20 @@ object Routes:
   def all[F[_]: Async](
       docs: DocumentService[F],
       rooms: RoomRegistry[F],
+      auth: AuthService[F],
+      jwt: JwtAuth,
       wsb: WebSocketBuilder2[F]
   ): HttpRoutes[F] =
     val tree = Router(
       "/"              -> health[F],
+      "/api/auth"      -> AuthRoutes.routes[F](auth, jwt),
       "/api/documents" -> documents[F](docs, rooms),
       "/ws"            -> websockets[F](docs, rooms, wsb),
     )
-    CORS.policy.withAllowOriginAll.withAllowCredentials(false).apply(tree)
+    // Credentials must be allowed (and the request Origin reflected rather than `*`, which the spec
+    // forbids alongside credentials) so the browser will send/accept the HttpOnly auth cookie from
+    // the Vite dev server's different origin. Tighten the origin predicate before production.
+    CORS.policy.withAllowOriginHost(_ => true).withAllowCredentials(true).apply(tree)
 
   // ------------------------------------------------------------------ health
 

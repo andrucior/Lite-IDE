@@ -9,6 +9,7 @@ val Versions = new {
   val CatsEff = "3.5.7"
   val Fs2 = "3.11.0"
   val Circe = "0.14.10"
+  val Jwt = "10.0.4"
   val Logback = "1.5.18"
   val Munit = "1.1.0"
   val MunitCE3 = "2.0.0"
@@ -38,6 +39,9 @@ lazy val root = (project in file("."))
       "io.circe" %% "circe-core" % Versions.Circe,
       "io.circe" %% "circe-generic" % Versions.Circe,
       "io.circe" %% "circe-parser" % Versions.Circe,
+
+      // Auth (JWT stored in an HttpOnly cookie)
+      "com.github.jwt-scala" %% "jwt-circe" % Versions.Jwt,
 
       // Logging
       "ch.qos.logback" % "logback-classic" % Versions.Logback,

@@ -7,8 +7,9 @@ import fs2.io.net.Network
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.server.Server
 
+import com.liteide.auth.JwtAuth
 import com.liteide.config.HttpConfig
-import com.liteide.service.{DocumentService, RoomRegistry}
+import com.liteide.service.{AuthService, DocumentService, RoomRegistry}
 
 /** Wires up the HTTP server. Routing trees live in their own files under `http/`. */
 object HttpServer:
@@ -16,13 +17,15 @@ object HttpServer:
   def serve[F[_]: Async: Network](
       config: HttpConfig,
       docs: DocumentService[F],
-      rooms: RoomRegistry[F]
+      rooms: RoomRegistry[F],
+      auth: AuthService[F],
+      jwt: JwtAuth
   ): Resource[F, Server] =
     EmberServerBuilder
       .default[F]
       .withHost(Host.fromString(config.host).getOrElse(sys.error(s"bad host: ${config.host}")))
       .withPort(Port.fromInt(config.port).getOrElse(sys.error(s"bad port: ${config.port}")))
       .withHttpWebSocketApp { wsb =>
-        Routes.all[F](docs, rooms, wsb).orNotFound
+        Routes.all[F](docs, rooms, auth, jwt, wsb).orNotFound
       }
       .build
