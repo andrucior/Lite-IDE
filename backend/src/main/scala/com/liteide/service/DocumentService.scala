@@ -84,6 +84,11 @@ trait DocumentService[F[_]]:
 
 object DocumentService:
 
+  /** Rejection reason shared by `addMember`/`setRole`: the `Owner` role is conferred only by
+    * `Document.ownerId` and can never be granted through the membership map.
+    */
+  private val CannotGrantOwnerRole = "cannot grant the Owner role"
+
   /** In-memory implementation — sufficient for the first vertical slice.
     *
     * Replace with a persisted backend (Postgres + Skunk, SQLite + magnum, …) once the storage layer
@@ -153,7 +158,7 @@ object DocumentService:
       ): F[Either[String, Unit]] =
         asOwner(docId, actingUserId) { grants =>
           if targetUserId == actingUserId then Left("you are already the owner")
-          else if role == Role.Owner then Left("cannot grant the Owner role")
+          else if role == Role.Owner then Left(CannotGrantOwnerRole)
           else if grants.contains(targetUserId) then Left("user is already a member")
           else Right(grants.updated(targetUserId, role))
         }
@@ -166,7 +171,7 @@ object DocumentService:
       ): F[Either[String, Unit]] =
         asOwner(docId, actingUserId) { grants =>
           if targetUserId == actingUserId then Left("cannot change your own role")
-          else if role == Role.Owner then Left("cannot grant the Owner role")
+          else if role == Role.Owner then Left(CannotGrantOwnerRole)
           else Right(grants.updated(targetUserId, role))
         }
 
@@ -278,7 +283,7 @@ object DocumentService:
       ): F[Either[String, Unit]] =
         asOwner(docId, actingUserId) {
           if targetUserId == actingUserId then Sync[F].pure(Left("you are already the owner"))
-          else if role == Role.Owner then Sync[F].pure(Left("cannot grant the Owner role"))
+          else if role == Role.Owner then Sync[F].pure(Left(CannotGrantOwnerRole))
           else
             pool.use(_.prepare(insertMember).flatMap(_.execute((docId, targetUserId, role)))).map {
               case Completion.Insert(0) => Left("user is already a member")
@@ -294,7 +299,7 @@ object DocumentService:
       ): F[Either[String, Unit]] =
         asOwner(docId, actingUserId) {
           if targetUserId == actingUserId then Sync[F].pure(Left("cannot change your own role"))
-          else if role == Role.Owner then Sync[F].pure(Left("cannot grant the Owner role"))
+          else if role == Role.Owner then Sync[F].pure(Left(CannotGrantOwnerRole))
           else pool.use(_.prepare(upsertMember).flatMap(_.execute((docId, targetUserId, role)))).as(Right(()))
         }
 

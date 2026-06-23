@@ -19,9 +19,9 @@ services:
       # Inside the compose network the database is reachable by its service name.
       DB_HOST: postgres
       DB_PORT: "5432"
-      DB_USER: liteide
-      DB_PASSWORD: liteide
-      DB_NAME: liteide
+      DB_USER: ${POSTGRES_USER:-liteide}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-liteide}
+      DB_NAME: ${POSTGRES_DB:-liteide}
     depends_on:
       postgres:
         condition: service_healthy
@@ -31,9 +31,9 @@ services:
     image: postgres:16-alpine
     container_name: lite-ide-postgres
     environment:
-      POSTGRES_USER: liteide
-      POSTGRES_PASSWORD: liteide
-      POSTGRES_DB: liteide
+      POSTGRES_USER: ${POSTGRES_USER:-liteide}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-liteide}
+      POSTGRES_DB: ${POSTGRES_DB:-liteide}
       LANG: C.UTF-8
     ports:
       # Exposed on the host so `sbt run` outside Docker can reach it. Host port is 5434 to avoid
@@ -43,7 +43,7 @@ services:
     volumes:
       - lite-ide-pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U liteide -d liteide"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-liteide} -d $${POSTGRES_DB:-liteide}"]
       interval: 5s
       timeout: 5s
       retries: 10
