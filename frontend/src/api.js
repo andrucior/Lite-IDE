@@ -33,10 +33,20 @@ export class ApiError extends Error {
   }
 }
 
+// Callback invoked whenever an authenticated request comes back 401 — the app registers
+// one (see App.jsx) to drop the user to the login screen when their session ends.
+let onUnauthorized = null
+
+/** Register (or clear, with `null`) the global "session ended" handler. */
+export function setOnUnauthorized(fn) {
+  onUnauthorized = fn
+}
+
 /** Single fetch helper. Cookies ride along automatically (same-origin default). Throws
  *  `ApiError` on any non-2xx, using the backend's `{ "error": ... }` body as the message
- *  when it has one. */
-async function request(path, { method = 'GET', body } = {}) {
+ *  when it has one. A 401 also fires the global `onUnauthorized` handler (unless suppressed,
+ *  e.g. during the initial session probe) so the UI can redirect to login. */
+async function request(path, { method = 'GET', body, suppressUnauthorized = false } = {}) {
   const opts = { method, headers: {} }
   if (body !== undefined) {
     opts.headers['content-type'] = 'application/json'
@@ -44,6 +54,7 @@ async function request(path, { method = 'GET', body } = {}) {
   }
   const r = await fetch(path, opts)
   if (!r.ok) {
+    if (r.status === 401 && !suppressUnauthorized && onUnauthorized) onUnauthorized()
     let detail = `HTTP ${r.status}`
     try {
       const j = await r.json()
@@ -58,10 +69,11 @@ async function request(path, { method = 'GET', body } = {}) {
 
 // ------------------------------------------------------------------ auth
 
-/** Current account `{ id, email, displayName }`, or `null` if not logged in. */
+/** Current account `{ id, email, displayName }`, or `null` if not logged in. The 401 here
+ *  is the expected "not logged in" answer, so it must not trigger the global redirect. */
 export async function me() {
   try {
-    return await request('/api/auth/me')
+    return await request('/api/auth/me', { suppressUnauthorized: true })
   } catch (e) {
     if (e instanceof ApiError && e.status === 401) return null
     throw e

@@ -46,6 +46,15 @@ trait DocumentRoom[F[_]]:
   /** Update a session's cursor + selection and broadcast. */
   def submitCursor(sessionId: SessionId, pos: Int, selectionEnd: Int): F[Unit]
 
+  /** Apply a permission change to every connected session of `userId` and broadcast it, so
+    * role changes take effect without a reconnect.
+    *
+    * `role = None` means access was revoked: the user's sessions are forced to `Observer`
+    * (the server then rejects any further edits from them) and clients are told to leave.
+    * No-op if the user has no live session in this room.
+    */
+  def applyRoleChange(userId: UserId, role: Option[Role]): F[Unit]
+
   /** Current snapshot — used for REST GET. */
   def snapshot: F[(Int, String)]
 
@@ -220,6 +229,22 @@ object DocumentRoom:
                   )
                 )
                 .void
+          }
+
+      def applyRoleChange(userId: UserId, role: Option[Role]): F[Unit] =
+        val effective = role.getOrElse(Role.Observer) // revoked → block further edits
+        presence
+          .modify { m =>
+            val affected = m.values.exists(_.userId == userId)
+            val updated = m.map {
+              case (sid, p) if p.userId == userId => sid -> p.copy(role = effective)
+              case other                          => other
+            }
+            (updated, affected)
+          }
+          .flatMap { affected =>
+            if affected then topic.publish1(ServerMsg.RoleChanged(userId, role)).void
+            else Concurrent[F].unit
           }
 
       def snapshot: F[(Int, String)] =

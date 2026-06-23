@@ -120,6 +120,14 @@ object Routes:
             case Some(_) => body(id)
           }
 
+    /** Push a just-persisted permission change into the live room (if any) so connected
+      * sessions of `targetId` see it without reconnecting. `role = None` means revoked. */
+    def propagateRole(docId: DocumentId, targetId: UserId, role: Option[Role]): F[Unit] =
+      rooms.get(docId).flatMap {
+        case Some(room) => room.applyRoleChange(targetId, role)
+        case None       => Async[F].unit
+      }
+
     AuthedRoutes.of[UserId, F] {
       // List — only the caller's own documents ------------------------------
       case GET -> Root as userId =>
@@ -200,7 +208,8 @@ object Routes:
               UserId.fromString(body.userId) match
                 case Some(targetId) =>
                   docs.setRole(docId, userId, targetId, body.role).flatMap {
-                    case Right(_)  => Ok(Json.obj("ok" -> true.asJson))
+                    case Right(_)  =>
+                      propagateRole(docId, targetId, Some(body.role)) *> Ok(Json.obj("ok" -> true.asJson))
                     case Left(err) => Forbidden(Json.obj("error" -> err.asJson))
                   }
                 case None =>
@@ -215,7 +224,8 @@ object Routes:
             UserId.fromString(targetIdStr) match
               case Some(targetId) =>
                 docs.removeRole(docId, userId, targetId).flatMap {
-                  case Right(_)  => Ok(Json.obj("ok" -> true.asJson))
+                  case Right(_)  =>
+                    propagateRole(docId, targetId, None) *> Ok(Json.obj("ok" -> true.asJson))
                   case Left(err) => Forbidden(Json.obj("error" -> err.asJson))
                 }
               case None =>

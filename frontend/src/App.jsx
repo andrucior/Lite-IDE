@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import CodeEditor from './CodeEditor.jsx'
 import DocumentList from './DocumentList.jsx'
 import AuthPanel from './AuthPanel.jsx'
-import { me } from './api.js'
+import { me, setOnUnauthorized } from './api.js'
 
 /**
  * Top-level shell.
@@ -22,6 +22,13 @@ export default function App() {
 
   useEffect(() => {
     me().then(setAccount).catch(() => setAccount(null))
+  }, [])
+
+  // Any authenticated request that comes back 401 (session expired, cookie cleared) drops
+  // us straight to the login screen.
+  useEffect(() => {
+    setOnUnauthorized(() => { setDoc(null); setAccount(null) })
+    return () => setOnUnauthorized(null)
   }, [])
 
   if (account === undefined) {
