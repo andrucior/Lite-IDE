@@ -14,5 +14,40 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "8080:8080"
+      - "8090:8090"
+    environment:
+      # Inside the compose network the database is reachable by its service name.
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: liteide
+      DB_PASSWORD: liteide
+      DB_NAME: liteide
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: lite-ide-postgres
+    environment:
+      POSTGRES_USER: liteide
+      POSTGRES_PASSWORD: liteide
+      POSTGRES_DB: liteide
+      LANG: C.UTF-8
+    ports:
+      # Exposed on the host so `sbt run` outside Docker can reach it. Host port is 5434 to avoid
+      # clashing with a native PostgreSQL that may already own 5432 — set DB_PORT=5434 for local runs.
+      # (Container-to-container traffic from the backend service still uses 5432.)
+      - "5434:5432"
+    volumes:
+      - lite-ide-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U liteide -d liteide"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  lite-ide-pgdata:

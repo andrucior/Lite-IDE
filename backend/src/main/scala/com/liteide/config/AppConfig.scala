@@ -9,9 +9,23 @@ import cats.effect.Sync
   * Currently env-var based to avoid pulling a config lib before we need one. Replace with
   * PureConfig / Ciris once the surface grows.
   */
-final case class AppConfig(http: HttpConfig, auth: AuthConfig)
+final case class AppConfig(http: HttpConfig, auth: AuthConfig, db: DbConfig)
 
 final case class HttpConfig(host: String, port: Int)
+
+/** Connection settings for the Postgres backend reached via Skunk.
+  *
+  * `maxSessions` bounds the connection pool — every concurrent query checks out a session, so this
+  * is the ceiling on simultaneous DB round-trips. The dev defaults match `docker-compose.yml`.
+  */
+final case class DbConfig(
+    host:        String,
+    port:        Int,
+    user:        String,
+    password:    String,
+    database:    String,
+    maxSessions: Int,
+)
 
 /** Settings for the cookie/JWT auth layer.
   *
@@ -28,10 +42,19 @@ object AppConfig:
   def load[F[_]: Sync]: F[AppConfig] =
     Sync[F].delay {
       val host = sys.env.getOrElse("HTTP_HOST", "0.0.0.0")
-      val port = sys.env.get("HTTP_PORT").flatMap(_.toIntOption).getOrElse(8080)
+      val port = sys.env.get("HTTP_PORT").flatMap(_.toIntOption).getOrElse(8090)
 
       val jwtSecret = sys.env.getOrElse("JWT_SECRET", DevJwtSecret)
       val ttlHours  = sys.env.get("JWT_TTL_HOURS").flatMap(_.toLongOption).getOrElse(24L)
 
-      AppConfig(HttpConfig(host, port), AuthConfig(jwtSecret, ttlHours.hours))
+      val db = DbConfig(
+        host        = sys.env.getOrElse("DB_HOST", "localhost"),
+        port        = sys.env.get("DB_PORT").flatMap(_.toIntOption).getOrElse(5434),
+        user        = sys.env.getOrElse("DB_USER", "liteide"),
+        password    = sys.env.getOrElse("DB_PASSWORD", "liteide"),
+        database    = sys.env.getOrElse("DB_NAME", "liteide"),
+        maxSessions = sys.env.get("DB_MAX_SESSIONS").flatMap(_.toIntOption).getOrElse(10),
+      )
+
+      AppConfig(HttpConfig(host, port), AuthConfig(jwtSecret, ttlHours.hours), db)
     }

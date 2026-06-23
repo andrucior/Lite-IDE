@@ -2,10 +2,11 @@ package com.liteide
 
 import java.time.Clock
 
-import cats.effect.{ExitCode, IO, IOApp}
+import cats.effect.{ExitCode, IO, IOApp, Resource}
 
 import com.liteide.auth.JwtAuth
 import com.liteide.config.AppConfig
+import com.liteide.db.Db
 import com.liteide.http.HttpServer
 import com.liteide.service.{AuthService, DocumentService, RoomRegistry}
 
@@ -17,14 +18,20 @@ import com.liteide.service.{AuthService, DocumentService, RoomRegistry}
 object Main extends IOApp:
 
   override def run(args: List[String]): IO[ExitCode] =
-    for
-      config <- AppConfig.load[IO]
-      // Documents are now private to their owner/members, so there is no useful "seed" document we
-      // could create up-front without a real user to own it — the first document is created by the
-      // first logged-in user via `POST /api/documents`.
-      docs <- DocumentService.inMemory[IO]
-      auth   <- AuthService.inMemory[IO]
-      jwt     = JwtAuth(config.auth.jwtSecret, config.auth.ttl, Clock.systemUTC())
-      rooms  <- RoomRegistry.make[IO]
-      _      <- HttpServer.serve[IO](config.http, docs, rooms, auth, jwt).useForever
-    yield ExitCode.Success
+    AppConfig.load[IO].flatMap { config =>
+      // Composition root: own the connection pool + server for the process lifetime. Documents are
+      // private to their owner/members, so there is no useful "seed" document to create up-front
+      // without a real user — the first document is created by the first logged-in user via
+      // `POST /api/documents`.
+      val server: Resource[IO, Unit] =
+        for
+          pool   <- Db.pooled[IO](config.db)
+          _      <- Resource.eval(Db.migrate(pool))
+          docs    = DocumentService.postgres[IO](pool)
+          auth    = AuthService.postgres[IO](pool)
+          jwt     = JwtAuth(config.auth.jwtSecret, config.auth.ttl, Clock.systemUTC())
+          rooms  <- Resource.eval(RoomRegistry.make[IO])
+          _      <- HttpServer.serve[IO](config.http, docs, rooms, auth, jwt)
+        yield ()
+      server.useForever.as(ExitCode.Success)
+    }

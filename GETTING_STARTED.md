@@ -40,7 +40,7 @@ sbt run
 ```
 
 The first run downloads dependencies; subsequent runs are fast. The server listens on
-`http://localhost:8080` and seeds a demo document called `welcome` so the lobby is
+`http://localhost:8090` and seeds a demo document called `welcome` so the lobby is
 non-empty on first load.
 
 **Terminal 2 — frontend:**
@@ -52,7 +52,7 @@ npm run dev
 ```
 
 Vite prints a URL (usually `http://localhost:5173`). Open it. The dev server proxies
-`/api/*` and `/ws/*` to `localhost:8080`, so the same origin works for REST and
+`/api/*` and `/ws/*` to `localhost:8090`, so the same origin works for REST and
 WebSocket.
 
 ## Try the collaboration

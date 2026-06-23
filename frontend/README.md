@@ -1,7 +1,7 @@
 # Frontend
 
 React 19 + Vite + Monaco — the collaborative editor UI. Talks to the Scala backend
-over `/api/*` (REST) and `/ws/*` (WebSocket); both are proxied to `localhost:8080` by
+over `/api/*` (REST) and `/ws/*` (WebSocket); both are proxied to `localhost:8090` by
 the Vite dev server (see `vite.config.js`).
 
 > New to the project? Read [`../../GETTING_STARTED.md`](../../GETTING_STARTED.md)
@@ -24,7 +24,7 @@ npm run build      # production build into dist/
 npm run preview    # serve dist/ for a smoke check
 ```
 
-The backend must be running on `:8080` for the editor to work. The dev server proxies
+The backend must be running on `:8090` for the editor to work. The dev server proxies
 `/api` and `/ws` to it; in production a reverse proxy is expected to do the same.
 
 ## What the UI does

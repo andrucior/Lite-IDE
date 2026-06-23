@@ -1,6 +1,6 @@
 # Lite-IDE backend
 
-Scala 3 / Cats Effect / http4s server for the collaborative editor. Runs on `:8080`
+Scala 3 / Cats Effect / http4s server for the collaborative editor. Runs on `:8090`
 by default (override with `HTTP_HOST` / `HTTP_PORT`).
 
 > New to the project? Read [`../GETTING_STARTED.md`](../GETTING_STARTED.md) first — it

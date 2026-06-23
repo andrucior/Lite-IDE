@@ -16,5 +16,5 @@ FROM eclipse-temurin:17.0.15_6-jre-alpine AS final
 WORKDIR /app
 COPY --from=build /app/target/scala-3.3.7/lite-ide-backend-assembly-*.jar app.jar
 
-EXPOSE 8080
+EXPOSE 8090
 ENTRYPOINT ["java", "-XX:+UseContainerSupport", "-XX:MaxRAMPercentage=75.0", "-jar", "app.jar"]
