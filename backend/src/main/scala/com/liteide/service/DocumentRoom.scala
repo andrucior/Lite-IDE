@@ -1,7 +1,10 @@
 package com.liteide.service
 
-import cats.effect.kernel.{Concurrent, Ref}
+import scala.concurrent.duration.*
+
+import cats.effect.kernel.{Async, Fiber, Ref}
 import cats.effect.std.Mutex
+import cats.effect.syntax.all.*
 import cats.syntax.all.*
 import fs2.Stream
 import fs2.concurrent.Topic
@@ -27,17 +30,21 @@ trait DocumentRoom[F[_]]:
   /** Subscribe to broadcast messages. Returns the snapshot the new participant should see
     * (atomically captured at subscribe time) and a stream of every subsequent broadcast.
     *
-    * `role` is stored in the session's presence so it can be checked in `submitEdit`
-    * and broadcast to peers via `PeerJoined`.
+    * `role` is stored in the session's presence so it can be checked in `submitEdit` and broadcast
+    * to peers via `PeerJoined`.
     */
-  def join(sessionId: SessionId, userId: UserId, displayName: String, role: Role)
-      : F[(ServerMsg.Snapshot, Stream[F, ServerMsg])]
+  def join(
+      sessionId: SessionId,
+      userId: UserId,
+      displayName: String,
+      role: Role
+  ): F[(ServerMsg.Snapshot, Stream[F, ServerMsg])]
 
   /** Remove a session — drop its presence and broadcast `PeerLeft`. */
   def leave(sessionId: SessionId): F[Unit]
 
-  /** Apply a client edit (transforming against intervening ops if `baseVersion` is stale)
-    * and broadcast the result. Returns the new version on success.
+  /** Apply a client edit (transforming against intervening ops if `baseVersion` is stale) and
+    * broadcast the result. Returns the new version on success.
     *
     * Observers are rejected immediately without touching OT state.
     */
@@ -55,15 +62,21 @@ trait DocumentRoom[F[_]]:
     */
   def applyRoleChange(userId: UserId, role: Option[Role]): F[Unit]
 
+  /** Set the document's editor language. Drives live diagnostics: `"scala"` enables compiler
+    * diagnostics (recomputed, debounced, on every edit); any other value clears them. The language
+    * is document-global because the text is shared — last writer wins.
+    */
+  def setLanguage(language: String): F[Unit]
+
   /** Current snapshot — used for REST GET. */
   def snapshot: F[(Int, String)]
 
   /** Full edit log with author metadata — used for the history REST endpoint. */
   def historyEntries: F[List[HistoryEntry]]
 
-  /** Reconstruct the document text at any past version for diff computation.
-   *  Returns None if targetVersion is outside [0, currentVersion].
-   */
+  /** Reconstruct the document text at any past version for diff computation. Returns None if
+    * targetVersion is outside [0, currentVersion].
+    */
   def textAtVersion(targetVersion: Int): F[Option[String]]
 
   /** Number of currently-connected sessions. */
@@ -75,22 +88,38 @@ object DocumentRoom:
   // needs to replay more than N ops. Lower = faster reads, higher memory use.
   private val SnapshotInterval = 100
 
+  // The one language value that triggers live diagnostics; matches the frontend dropdown.
+  private val ScalaLanguage = "scala"
+
   private final case class State(
       initialText: String,
-      text:        String,
-      version:     Int,
-      history:     Vector[HistoryEntry],
-      snapshots:   Map[Int, String],  // sparse: version -> text at that version
+      text: String,
+      version: Int,
+      history: Vector[HistoryEntry],
+      snapshots: Map[Int, String] // sparse: version -> text at that version
   )
 
-  /** Build a fresh room seeded with the given text (version 0, empty history). */
-  def make[F[_]: Concurrent](
+  /** Build a fresh room seeded with the given text (version 0, empty history).
+    *
+    * @param diagnostics
+    *   service that type-checks the document when the language is Scala
+    * @param debounce
+    *   how long to wait after the last edit before recomputing diagnostics, so a fast typist
+    *   triggers at most one compile per quiet window
+    */
+  def make[F[_]: Async](
       docId: DocumentId,
-      initialText: String
+      initialText: String,
+      diagnostics: ScalaDiagnostics[F],
+      debounce: FiniteDuration = 400.millis
   ): F[DocumentRoom[F]] =
     for
-      state    <- Ref.of[F, State](State(initialText, initialText, 0, Vector.empty, Map(0 -> initialText)))
+      state <- Ref.of[F, State](
+        State(initialText, initialText, 0, Vector.empty, Map(0 -> initialText))
+      )
       presence <- Ref.of[F, Map[SessionId, Presence]](Map.empty)
+      language <- Ref.of[F, Option[String]](None)
+      diagFiber <- Ref.of[F, Option[Fiber[F, Throwable, Unit]]](None)
       topic <- Topic[F, ServerMsg]
       mutex <- Mutex[F]
     yield new DocumentRoom[F]:
@@ -98,10 +127,10 @@ object DocumentRoom:
       val documentId: DocumentId = docId
 
       def join(
-          sessionId:   SessionId,
-          userId:      UserId,
+          sessionId: SessionId,
+          userId: UserId,
           displayName: String,
-          role:        Role,
+          role: Role
       ): F[(ServerMsg.Snapshot, Stream[F, ServerMsg])] =
         // We capture the snapshot AND register the subscription under the mutex. Because
         // every state-mutating publish also runs under the mutex (see `submitEdit`), this
@@ -120,22 +149,22 @@ object DocumentRoom:
             (rawStream, release) = allocated
             s <- state.get
             peers <- presence.get
-            me     = Presence(sessionId, userId, displayName, cursor = 0, selectionEnd = 0, role = role)
-            _     <- presence.update(_.updated(sessionId, me))
+            me = Presence(sessionId, userId, displayName, cursor = 0, selectionEnd = 0, role = role)
+            _ <- presence.update(_.updated(sessionId, me))
             // Explicit type ascription is required: without it, the for-comprehension
             // widens `snap` to the parent `ServerMsg` type (due to the later
             // `topic.publish1` step) and the yielded tuple no longer matches the
             // declared return type `(ServerMsg.Snapshot, Stream[F, ServerMsg])`.
             snap: ServerMsg.Snapshot = ServerMsg.Snapshot(
-                       documentId  = docId,
-                       sessionId   = sessionId,
-                       userId      = userId,
-                       version     = s.version,
-                       text        = s.text,
-                       peers       = peers.values.toList,
-                       role        = role,
-                     )
-            _     <- topic.publish1(ServerMsg.PeerJoined(me)).void
+              documentId = docId,
+              sessionId = sessionId,
+              userId = userId,
+              version = s.version,
+              text = s.text,
+              peers = peers.values.toList,
+              role = role
+            )
+            _ <- topic.publish1(ServerMsg.PeerJoined(me)).void
             stream = rawStream.onFinalize(release)
           yield (snap, stream)
         }
@@ -145,7 +174,7 @@ object DocumentRoom:
           removed <- presence.modify(m => (m.removed(sessionId), m.contains(sessionId)))
           _ <-
             if removed then topic.publish1(ServerMsg.PeerLeft(sessionId)).void
-            else Concurrent[F].unit
+            else Async[F].unit
         yield ()
 
       def submitEdit(
@@ -162,7 +191,10 @@ object DocumentRoom:
             case _ =>
               state.get.flatMap { s =>
                 if baseVersion < 0 || baseVersion > s.version then
-                  (Left(s"baseVersion $baseVersion out of range [0, ${s.version}]"): Either[String, Int])
+                  (Left(s"baseVersion $baseVersion out of range [0, ${s.version}]"): Either[
+                    String,
+                    Int
+                  ])
                     .pure[F]
                 else if Op.isNoop(op) then
                   // Drop trivial / empty edits before they reach OT so we don't bump the version
@@ -186,20 +218,26 @@ object DocumentRoom:
                     case Right(newText) =>
                       // Look up the author's display name from presence for the history log.
                       presence.get.flatMap { presMap =>
-                        val displayName = presMap.get(authorSessionId).map(_.displayName).getOrElse("unknown")
-                        val now         = System.currentTimeMillis()
-                        val newEntries  = transformed.zipWithIndex.map { (o, i) =>
+                        val displayName =
+                          presMap.get(authorSessionId).map(_.displayName).getOrElse("unknown")
+                        val now = System.currentTimeMillis()
+                        val newEntries = transformed.zipWithIndex.map { (o, i) =>
                           HistoryEntry(o, authorSessionId, displayName, now, s.version + i + 1)
                         }
-                        val newVersion   = s.version + transformed.size
-                        val newHistory   = s.history ++ newEntries
+                        val newVersion = s.version + transformed.size
+                        val newHistory = s.history ++ newEntries
                         val newSnapshots =
-                          if newVersion % SnapshotInterval == 0 then s.snapshots + (newVersion -> newText)
+                          if newVersion % SnapshotInterval == 0 then
+                            s.snapshots + (newVersion -> newText)
                           else s.snapshots
-                        val newState = State(s.initialText, newText, newVersion, newHistory, newSnapshots)
+                        val newState =
+                          State(s.initialText, newText, newVersion, newHistory, newSnapshots)
                         state.set(newState) *>
                           topic
-                            .publish1(ServerMsg.Applied(newVersion, transformed, authorSessionId))
+                            .publish1(
+                              ServerMsg.Applied(newVersion, transformed, authorSessionId)
+                            ) *>
+                          scheduleDiagnostics
                             .as(Right(newVersion): Either[String, Int])
                       }
               }
@@ -216,7 +254,7 @@ object DocumentRoom:
                 (m.updated(sessionId, updated), Some(updated))
           }
           .flatMap {
-            case None => Concurrent[F].unit
+            case None => Async[F].unit
             case Some(p) =>
               topic
                 .publish1(
@@ -244,8 +282,36 @@ object DocumentRoom:
           }
           .flatMap { affected =>
             if affected then topic.publish1(ServerMsg.RoleChanged(userId, role)).void
-            else Concurrent[F].unit
+            else Async[F].unit
           }
+
+      def setLanguage(lang: String): F[Unit] =
+        language.set(Some(lang)) *> {
+          if lang == ScalaLanguage then scheduleDiagnostics
+          else
+            // Switching away from Scala: clear any markers the clients are showing right away,
+            // and cancel a compile that may be mid-debounce so it can't repopulate them.
+            diagFiber.getAndSet(None).flatMap(_.traverse_(_.cancel)) *>
+              state.get.flatMap(s => topic.publish1(ServerMsg.Diagnostics(s.version, Nil)).void)
+        }
+
+      // Debounced, cancellable diagnostics run. Each call forks a fresh fiber that waits out the
+      // debounce window, type-checks the current text (if the language is Scala), and broadcasts
+      // the result. Atomically swapping the fiber ref and cancelling the previous one collapses a
+      // burst of edits into a single compile of the latest text.
+      def scheduleDiagnostics: F[Unit] =
+        val work: F[Unit] =
+          Async[F].sleep(debounce) *>
+            language.get.flatMap {
+              case Some(ScalaLanguage) =>
+                state.get.flatMap { s =>
+                  diagnostics.check(s.text).flatMap { ds =>
+                    topic.publish1(ServerMsg.Diagnostics(s.version, ds)).void
+                  }
+                }
+              case _ => Async[F].unit
+            }
+        work.start.flatMap(f => diagFiber.getAndSet(Some(f)).flatMap(_.traverse_(_.cancel)))
 
       def snapshot: F[(Int, String)] =
         state.get.map(s => (s.version, s.text))
@@ -259,7 +325,8 @@ object DocumentRoom:
           else if targetVersion == s.version then Some(s.text)
           else
             val (snapVersion, snapText) = s.snapshots.filter(_._1 <= targetVersion).maxBy(_._1)
-            Op.applyAll(snapText, s.history.slice(snapVersion, targetVersion).map(_.op).toList).toOption
+            Op.applyAll(snapText, s.history.slice(snapVersion, targetVersion).map(_.op).toList)
+              .toOption
         }
 
       def peerCount: F[Int] =

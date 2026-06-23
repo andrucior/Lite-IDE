@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import Editor from '@monaco-editor/react'
 import { useCollab } from './useCollab.js'
+import { toMonacoMarkers } from './diagnostics.js'
 import HistoryPanel from './HistoryPanel.jsx'
 import PermissionsPanel from './PermissionsPanel.jsx'
+
+const DIAGNOSTICS_OWNER = 'scala-diagnostics'
 
 const LANGUAGES = ['plaintext', 'javascript', 'typescript', 'python', 'scala', 'css', 'html', 'json']
 
@@ -41,7 +44,7 @@ export default function CodeEditor({ document: doc, account, onBack }) {
   const [showPerms, setShowPerms] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
 
-  const { status, snapshot, peers, role, revoked, sessionId, applyingRemote, sendChanges, sendCursor } =
+  const { status, snapshot, peers, role, revoked, diagnostics, sessionId, applyingRemote, sendChanges, sendCursor, setLanguage: announceLanguage } =
     useCollab(doc?.id, userName, editorRef, monacoRef)
 
   const isObserver = role === 'observer'
@@ -104,6 +107,23 @@ export default function CodeEditor({ document: doc, account, onBack }) {
       decorationsRef.current.set(decos)
     }
   }, [peers])
+
+  // Tell the server the document language whenever it changes (and once the socket is open,
+  // which also re-announces after a reconnect). 'scala' turns on server-side diagnostics.
+  useEffect(() => {
+    if (status !== 'open') return
+    announceLanguage(language)
+  }, [language, status, announceLanguage])
+
+  // Render compiler diagnostics as Monaco markers. An empty list clears them.
+  useEffect(() => {
+    const editor = editorRef.current
+    const monaco = monacoRef.current
+    if (!editor || !monaco) return
+    const model = editor.getModel()
+    if (!model) return
+    monaco.editor.setModelMarkers(model, DIAGNOSTICS_OWNER, toMonacoMarkers(diagnostics, monaco))
+  }, [diagnostics])
 
   function handleMount(editor, monaco) {
     editorRef.current = editor

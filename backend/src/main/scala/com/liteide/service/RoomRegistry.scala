@@ -1,6 +1,6 @@
 package com.liteide.service
 
-import cats.effect.kernel.{Concurrent, Ref}
+import cats.effect.kernel.{Async, Ref}
 import cats.effect.std.Mutex
 import cats.syntax.all.*
 
@@ -19,7 +19,7 @@ trait RoomRegistry[F[_]]:
 
 object RoomRegistry:
 
-  def make[F[_]: Concurrent]: F[RoomRegistry[F]] =
+  def make[F[_]: Async](diagnostics: ScalaDiagnostics[F]): F[RoomRegistry[F]] =
     for
       ref <- Ref.of[F, Map[DocumentId, DocumentRoom[F]]](Map.empty)
       creation <- Mutex[F]
@@ -36,7 +36,7 @@ object RoomRegistry:
               get(docId).flatMap {
                 case Some(r) => r.pure[F]
                 case None =>
-                  DocumentRoom.make[F](docId, initialText).flatTap { room =>
+                  DocumentRoom.make[F](docId, initialText, diagnostics).flatTap { room =>
                     ref.update(_.updated(docId, room))
                   }
               }

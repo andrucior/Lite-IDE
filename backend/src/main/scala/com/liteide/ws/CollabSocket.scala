@@ -9,7 +9,7 @@ import org.http4s.Response
 import org.http4s.server.websocket.WebSocketBuilder2
 import org.http4s.websocket.WebSocketFrame
 
-import com.liteide.domain.{Role}
+import com.liteide.domain.Role
 import com.liteide.domain.Ids.{DocumentId, SessionId, UserId}
 import com.liteide.protocol.Wire.{ClientMsg, ServerMsg}
 import com.liteide.service.{DocumentRoom, DocumentService, RoomRegistry}
@@ -70,18 +70,17 @@ object CollabSocket:
       )
 
   private def openConnection[F[_]: Async](
-      wsb:      WebSocketBuilder2[F],
-      room:     DocumentRoom[F],
-      docs:     DocumentService[F],
+      wsb: WebSocketBuilder2[F],
+      room: DocumentRoom[F],
+      docs: DocumentService[F],
       userName: String,
-      userId:   UserId,
-      role:     Role,
+      userId: UserId,
+      role: Role
   ): F[Response[F]] =
     val sessionId = SessionId.random
-    val display   = if userName.isBlank then s"anon-${sessionId.value.toString.take(4)}" else userName
+    val display = if userName.isBlank then s"anon-${sessionId.value.toString.take(4)}" else userName
 
     room.join(sessionId, userId, display, role).flatMap { case (snapshot, broadcast) =>
-
       val outbound: Stream[F, WebSocketFrame] =
         Stream.emit(textFrame(snapshot)) ++
           broadcast
@@ -131,6 +130,8 @@ object CollabSocket:
         }
       case ClientMsg.Cursor(pos, sel) =>
         room.submitCursor(sessionId, pos, sel)
+      case ClientMsg.SetLanguage(language) =>
+        room.setLanguage(language)
       case ClientMsg.Resync =>
         Async[F].unit
 

@@ -5,7 +5,7 @@ import cats.effect.std.Queue
 import fs2.Stream
 import munit.CatsEffectSuite
 
-import com.liteide.domain.{HistoryEntry, Op, Presence, Role}
+import com.liteide.domain.{Diagnostic, HistoryEntry, Op, Presence, Role, Severity}
 import com.liteide.domain.Ids.{DocumentId, SessionId, UserId}
 import com.liteide.protocol.Wire.ServerMsg
 
@@ -21,6 +21,12 @@ final class DocumentRoomSpec extends CatsEffectSuite:
 
   private val docId = DocumentId.random
 
+  /** Rooms in these tests don't exercise live diagnostics, so we wire the no-op service. The
+    * dedicated diagnostics test below uses a stub that returns a fixed list instead.
+    */
+  private def mkRoom(text: String): IO[DocumentRoom[IO]] =
+    DocumentRoom.make[IO](docId, text, ScalaDiagnostics.noop[IO])
+
   /** Run a room callback that has access to its broadcast stream pre-drained into a queue. The
     * queue lets a test pull messages one at a time without racing the room.
     *
@@ -32,9 +38,9 @@ final class DocumentRoomSpec extends CatsEffectSuite:
       body: (DocumentRoom[IO], SessionId, Queue[IO, ServerMsg]) => IO[A]
   ): IO[A] =
     for
-      room  <- DocumentRoom.make[IO](docId, initial)
-      sid    = SessionId.random
-      uid    = UserId.random
+      room <- mkRoom(initial)
+      sid = SessionId.random
+      uid = UserId.random
       joined <- room.join(sid, uid, "alice", Role.Editor)
       (_, stream) = joined
       queue <- Queue.unbounded[IO, ServerMsg]
@@ -54,7 +60,7 @@ final class DocumentRoomSpec extends CatsEffectSuite:
     yield out
 
   test("join returns a snapshot of the initial state"):
-    val room = DocumentRoom.make[IO](docId, "hello")
+    val room = mkRoom("hello")
     room.flatMap { r =>
       r.join(SessionId.random, UserId.random, "alice", Role.Editor).map { case (snap, _) =>
         assertEquals(snap.text, "hello")
@@ -67,7 +73,7 @@ final class DocumentRoomSpec extends CatsEffectSuite:
     val uid = UserId.random
     val sid = SessionId.random
     for
-      room        <- DocumentRoom.make[IO](docId, "abc")
+      room        <- mkRoom("abc")
       joined      <- room.join(sid, uid, "alice", Role.Editor)
       (_, stream)  = joined
       q           <- Queue.unbounded[IO, ServerMsg]
@@ -85,7 +91,7 @@ final class DocumentRoomSpec extends CatsEffectSuite:
     val uid = UserId.random
     val sid = SessionId.random
     for
-      room        <- DocumentRoom.make[IO](docId, "abc")
+      room        <- mkRoom("abc")
       joined      <- room.join(sid, uid, "alice", Role.Editor)
       (_, stream)  = joined
       q           <- Queue.unbounded[IO, ServerMsg]
@@ -101,7 +107,7 @@ final class DocumentRoomSpec extends CatsEffectSuite:
 
   test("applyRoleChange is a no-op when the target has no session in the room"):
     for
-      room        <- DocumentRoom.make[IO](docId, "abc")
+      room        <- mkRoom("abc")
       joined      <- room.join(SessionId.random, UserId.random, "alice", Role.Editor)
       (_, stream)  = joined
       q           <- Queue.unbounded[IO, ServerMsg]
@@ -148,7 +154,7 @@ final class DocumentRoomSpec extends CatsEffectSuite:
     }
 
   test("baseVersion out of range is rejected, version unchanged"):
-    DocumentRoom.make[IO](docId, "abc").flatMap { r =>
+    mkRoom("abc").flatMap { r =>
       for
         bad <- r.submitEdit(SessionId.random, 9, Op.Insert(0, "x"))
         _ = assert(bad.isLeft)
@@ -184,7 +190,7 @@ final class DocumentRoomSpec extends CatsEffectSuite:
     }
 
   test("cursor update reaches other peers"):
-    DocumentRoom.make[IO](docId, "abc").flatMap { room =>
+    mkRoom("abc").flatMap { room =>
       val sidA = SessionId.random
       val sidB = SessionId.random
       for
@@ -215,7 +221,7 @@ final class DocumentRoomSpec extends CatsEffectSuite:
     // mutex must serialise the edits and the OT must shift whichever one loses the race
     // by the length of the winner. Regardless of who goes first the final document must
     // contain both insertions and the version must advance by exactly 2.
-    DocumentRoom.make[IO](docId, "Z").flatMap { room =>
+    mkRoom("Z").flatMap { room =>
       val sidA = SessionId.random
       val sidB = SessionId.random
       for
@@ -241,10 +247,10 @@ final class DocumentRoomSpec extends CatsEffectSuite:
     }
 
   test("leave decrements peer count and broadcasts PeerLeft"):
-    DocumentRoom.make[IO](docId, "x").flatMap { room =>
+    mkRoom("x").flatMap { room =>
       val sid = SessionId.random
       for
-        _  <- room.join(sid, UserId.random, "alice", Role.Editor)
+        _ <- room.join(sid, UserId.random, "alice", Role.Editor)
         n1 <- room.peerCount
         _ = assertEquals(n1, 1)
         _ <- room.leave(sid)
@@ -253,23 +259,65 @@ final class DocumentRoomSpec extends CatsEffectSuite:
       yield ()
     }
 
+  /** A diagnostics service returning a fixed list, so the broadcast path is deterministic and
+    * doesn't pay for a real compile.
+    */
+  private def stubDiagnostics(fixed: List[Diagnostic]): ScalaDiagnostics[IO] =
+    new ScalaDiagnostics[IO]:
+      def check(source: String): IO[List[Diagnostic]] = IO.pure(fixed)
+
+  test("setLanguage(scala) broadcasts diagnostics; switching away clears them"):
+    val diag = Diagnostic(Severity.Error, "boom", 1, 1, 1, 2)
+    // Short debounce keeps the test fast; the broadcast path is otherwise identical to prod.
+    DocumentRoom.make[IO](docId, "x", stubDiagnostics(List(diag)), debounce = 10.millis).flatMap {
+      room =>
+        val sid = SessionId.random
+        for
+          joined <- room.join(sid, UserId.random, "alice", Role.Editor)
+          (_, stream) = joined
+          q <- Queue.unbounded[IO, ServerMsg]
+          pump <- stream.evalMap(q.offer).compile.drain.start
+          // Enabling Scala triggers a compile and a Diagnostics broadcast carrying our stub list.
+          _ <- room.setLanguage("scala")
+          d <- Stream
+            .repeatEval(q.take)
+            .collect { case d: ServerMsg.Diagnostics => d }
+            .take(1)
+            .compile
+            .lastOrError
+            .timeout(2.seconds)
+          _ = assertEquals(d.diagnostics, List(diag))
+          // Switching to a non-Scala language clears markers with an empty broadcast.
+          _ <- room.setLanguage("plaintext")
+          cleared <- Stream
+            .repeatEval(q.take)
+            .collect { case d: ServerMsg.Diagnostics => d }
+            .take(1)
+            .compile
+            .lastOrError
+            .timeout(2.seconds)
+          _ = assertEquals(cleared.diagnostics, List.empty[Diagnostic])
+          _ <- pump.cancel
+        yield ()
+    }
+
   test("historyEntries is empty on a fresh room"):
-    DocumentRoom.make[IO](docId, "abc").flatMap { room =>
+    mkRoom("abc").flatMap { room =>
       room.historyEntries.map(h => assertEquals(h, List.empty[HistoryEntry]))
     }
 
   test("historyEntries records op, version and author after an edit"):
-    DocumentRoom.make[IO](docId, "ab").flatMap { room =>
+    mkRoom("ab").flatMap { room =>
       val sid = SessionId.random
       for
-        _       <- room.join(sid, UserId.random, "alice", Role.Editor)
-        _       <- room.submitEdit(sid, 0, Op.Insert(2, "c"))
+        _ <- room.join(sid, UserId.random, "alice", Role.Editor)
+        _ <- room.submitEdit(sid, 0, Op.Insert(2, "c"))
         entries <- room.historyEntries
-        _        = assertEquals(entries.size, 1)
-        entry    = entries.head
-        _        = assertEquals(entry.op, Op.Insert(2, "c"))
-        _        = assertEquals(entry.version, 1)
-        _        = assertEquals(entry.authorDisplayName, "alice")
-        _        = assertEquals(entry.authorSessionId, sid)
+        _ = assertEquals(entries.size, 1)
+        entry = entries.head
+        _ = assertEquals(entry.op, Op.Insert(2, "c"))
+        _ = assertEquals(entry.version, 1)
+        _ = assertEquals(entry.authorDisplayName, "alice")
+        _ = assertEquals(entry.authorSessionId, sid)
       yield ()
     }

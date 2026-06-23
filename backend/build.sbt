@@ -31,6 +31,13 @@ lazy val root = (project in file("."))
       "org.typelevel" %% "cats-effect" % Versions.CatsEff,
       "co.fs2" %% "fs2-core" % Versions.Fs2,
 
+      // In-process Scala 3 compiler — used by `ScalaDiagnostics` to type-check the live
+      // document text and report errors/warnings to the editor. `%%` resolves to
+      // `scala3-compiler_3`. This drops the full compiler + std-lib onto the runtime
+      // classpath; that same classpath (`java.class.path`) is what the diagnostics service
+      // hands back to the compiler so user code can resolve `scala.*` and the std lib.
+      "org.scala-lang" %% "scala3-compiler" % scalaVersion.value,
+
       // HTTP + WebSocket server
       "org.http4s" %% "http4s-ember-server" % Versions.Http4s,
       "org.http4s" %% "http4s-dsl" % Versions.Http4s,
