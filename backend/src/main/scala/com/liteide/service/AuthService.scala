@@ -25,6 +25,11 @@ trait AuthService[F[_]]:
   /** Look up an account by id — used by the auth middleware to resolve a verified token. */
   def findById(id: UserId): F[Option[Account]]
 
+  /** Look up an account by its (case-insensitive) login email — used to add people to a document
+    * by email rather than by raw user id.
+    */
+  def findByEmail(email: String): F[Option[Account]]
+
 object AuthService:
 
   /** A throwaway hash with the right shape, verified against when no account matches, so that the
@@ -67,4 +72,7 @@ object AuthService:
 
         def findById(id: UserId): F[Option[Account]] =
           accountsRef.get.map(_.values.find(_.id == id))
+
+        def findByEmail(email: String): F[Option[Account]] =
+          accountsRef.get.map(_.get(normalize(email)))
     }
