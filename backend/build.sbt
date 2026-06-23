@@ -10,6 +10,7 @@ val Versions = new {
   val Fs2 = "3.11.0"
   val Circe = "0.14.10"
   val Jwt = "10.0.4"
+  val Skunk = "0.6.4"
   val Logback = "1.5.18"
   val Munit = "1.1.0"
   val MunitCE3 = "2.0.0"
@@ -42,6 +43,9 @@ lazy val root = (project in file("."))
 
       // Auth (JWT stored in an HttpOnly cookie)
       "com.github.jwt-scala" %% "jwt-circe" % Versions.Jwt,
+
+      // Database (Postgres, purely-functional driver)
+      "org.tpolecat" %% "skunk-core" % Versions.Skunk,
 
       // Logging
       "ch.qos.logback" % "logback-classic" % Versions.Logback,

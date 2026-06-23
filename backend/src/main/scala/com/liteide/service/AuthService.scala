@@ -1,8 +1,13 @@
 package com.liteide.service
 
-import cats.effect.kernel.{Ref, Sync}
+import cats.effect.kernel.{Ref, Resource, Sync}
 import cats.syntax.all.*
+import skunk.*
+import skunk.codec.all.*
+import skunk.data.Completion
+import skunk.implicits.*
 
+import com.liteide.db.Codecs
 import com.liteide.domain.Account
 import com.liteide.domain.Ids.UserId
 
@@ -76,3 +81,54 @@ object AuthService:
         def findByEmail(email: String): F[Option[Account]] =
           accountsRef.get.map(_.get(normalize(email)))
     }
+
+  /** Postgres-backed implementation behind the same trait — see `DocumentService.postgres` for the
+    * companion store. Accounts live in the `users` table; the email uniqueness rule that `inMemory`
+    * enforces with a `Map` key is delegated to the `UNIQUE` constraint via `ON CONFLICT DO NOTHING`.
+    */
+  def postgres[F[_]: Sync](pool: Resource[F, Session[F]]): AuthService[F] =
+    new AuthService[F]:
+
+      private def normalize(email: String): String = email.trim.toLowerCase
+
+      private val insertUser: Command[Account] =
+        sql"""INSERT INTO users (id, email, display_name, password_hash)
+              VALUES (${Codecs.account})
+              ON CONFLICT (email) DO NOTHING""".command
+
+      private val selectByEmail: Query[String, Account] =
+        sql"""SELECT id, email, display_name, password_hash
+              FROM users WHERE email = $text""".query(Codecs.account)
+
+      private val selectById: Query[UserId, Account] =
+        sql"""SELECT id, email, display_name, password_hash
+              FROM users WHERE id = ${Codecs.userId}""".query(Codecs.account)
+
+      def register(email: String, displayName: String, password: String): F[Either[String, Account]] =
+        val key = normalize(email)
+        if key.isEmpty || password.isEmpty then
+          Sync[F].pure(Left("email and password must not be empty"))
+        else
+          for
+            hash    <- Sync[F].delay(PasswordHasher.hash(password))
+            account  = Account(UserId.random, key, displayName.trim, hash)
+            result  <- pool.use(_.prepare(insertUser).flatMap(_.execute(account))).map {
+                         case Completion.Insert(0) => Left("email already registered")
+                         case _                    => Right(account)
+                       }
+          yield result
+
+      def login(email: String, password: String): F[Option[Account]] =
+        pool.use(_.prepare(selectByEmail).flatMap(_.option(normalize(email)))).flatMap {
+          case Some(account) =>
+            Sync[F].delay(PasswordHasher.verify(password, account.passwordHash)).map(Option.when(_)(account))
+          case None =>
+            // Spend the same work as a real check, then fail, to keep timing uniform.
+            Sync[F].delay(PasswordHasher.verify(password, DummyHash)).as(None)
+        }
+
+      def findById(id: UserId): F[Option[Account]] =
+        pool.use(_.prepare(selectById).flatMap(_.option(id)))
+
+      def findByEmail(email: String): F[Option[Account]] =
+        pool.use(_.prepare(selectByEmail).flatMap(_.option(normalize(email))))
