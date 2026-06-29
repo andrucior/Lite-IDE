@@ -19,14 +19,12 @@ import com.liteide.config.DbConfig
   */
 object Db:
 
-  def pooled[F[_]: Temporal: Network: Console](cfg: DbConfig): Resource[F, Resource[F, Session[F]]] =
+  def pooled[F[_]: Temporal: Network: Console](cfg: DbConfig)
+  : Resource[F, Resource[F, Session[F]]] =
+
     Session.pooled[F](
-      host     = cfg.host,
-      port     = cfg.port,
-      user     = cfg.user,
-      database = cfg.database,
-      password = Some(cfg.password),
-      max      = cfg.maxSessions,
+      cfg.url,
+      max = cfg.maxSessions
     )
 
   /** Idempotent schema creation — safe to run on every boot. */
