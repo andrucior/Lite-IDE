@@ -7,6 +7,7 @@ import fs2.io.net.Network
 import natchez.Trace.Implicits.noop
 import skunk.*
 import skunk.implicits.*
+import java.net.URI
 
 import com.liteide.config.DbConfig
 
@@ -18,12 +19,26 @@ import com.liteide.config.DbConfig
   * `natchez` tracer here if/when we want query spans.
   */
 object Db:
+  def parse(url: String): (String, Int, String, String, String) =
+    val uri = new URI(url)
+
+    val Array(user, pass) = uri.getUserInfo.split(":")
+    val host = uri.getHost
+    val port = if uri.getPort == -1 then 5432 else uri.getPort
+    val db = uri.getPath.drop(1)
+
+    (host, port, user, pass, db)
 
   def pooled[F[_]: Temporal: Network: Console](cfg: DbConfig)
   : Resource[F, Resource[F, Session[F]]] =
 
+    val (host, port, user, password, db) = parse(cfg.url)
     Session.pooled[F](
-      cfg.url,
+      host = host,
+      port = port,
+      user = user,
+      database = db,
+      password = Some(password),
       max = cfg.maxSessions
     )
 
