@@ -29,7 +29,7 @@ jobs:
 
       # Push backend image
       - name: Push backend
-        run: docker push ${{ env.REGISTRY }}/backend/lite-ide-backend:latest
+        run: docker push ${{ env.REGISTRY }}/andrucior/backend/lite-ide-backend:latest
 
       # Build frontend image
       - name: Build frontend
@@ -37,4 +37,4 @@ jobs:
 
       # Push frontend image
       - name: Push frontend
-        run: docker push ${{ env.REGISTRY }}/backend/lite-ide-frontend:latest
+        run: docker push ${{ env.REGISTRY }}/andrucior/backend/lite-ide-frontend:latest
