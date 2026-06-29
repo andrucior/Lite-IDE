@@ -50,7 +50,11 @@ export function setOnUnauthorized(fn) {
  *  when it has one. A 401 also fires the global `onUnauthorized` handler (unless suppressed,
  *  e.g. during the initial session probe) so the UI can redirect to login. */
 async function request(path, { method = 'GET', body, suppressUnauthorized = false } = {}) {
-  const opts = { method, headers: {} }
+  const opts = {
+    method,
+    headers: {},
+    credentials:  'include'
+  }
   const API_BASE = import.meta.env.VITE_API_URL || '';
 
   if (body !== undefined) {
