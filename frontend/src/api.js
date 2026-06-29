@@ -51,11 +51,13 @@ export function setOnUnauthorized(fn) {
  *  e.g. during the initial session probe) so the UI can redirect to login. */
 async function request(path, { method = 'GET', body, suppressUnauthorized = false } = {}) {
   const opts = { method, headers: {} }
+  const API_BASE = import.meta.env.VITE_API_URL || '';
+
   if (body !== undefined) {
     opts.headers['content-type'] = 'application/json'
     opts.body = JSON.stringify(body)
   }
-  const r = await fetch(path, opts)
+  const r = await fetch(`${API_BASE}${path}`, opts)
   if (!r.ok) {
     if (r.status === 401 && !suppressUnauthorized && onUnauthorized) onUnauthorized()
     let detail = `HTTP ${r.status}`

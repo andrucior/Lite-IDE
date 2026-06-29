@@ -19,12 +19,8 @@ final case class HttpConfig(host: String, port: Int)
   * is the ceiling on simultaneous DB round-trips. The dev defaults match `docker-compose.yml`.
   */
 final case class DbConfig(
-    host:        String,
-    port:        Int,
-    user:        String,
-    password:    String,
-    database:    String,
-    maxSessions: Int,
+   url: String,
+   maxSessions: Int
 )
 
 /** Settings for the cookie/JWT auth layer.
@@ -48,11 +44,7 @@ object AppConfig:
       val ttlHours  = sys.env.get("JWT_TTL_HOURS").flatMap(_.toLongOption).getOrElse(24L)
 
       val db = DbConfig(
-        host        = sys.env.getOrElse("DB_HOST", "localhost"),
-        port        = sys.env.get("DB_PORT").flatMap(_.toIntOption).getOrElse(5434),
-        user        = sys.env.getOrElse("DB_USER", "liteide"),
-        password    = sys.env.getOrElse("DB_PASSWORD", "liteide"),
-        database    = sys.env.getOrElse("DB_NAME", "liteide"),
+        url        = sys.env.getOrElse("DB_URL", "postgresql://liteide:liteide@localhost:5434/liteide"),
         maxSessions = sys.env.get("DB_MAX_SESSIONS").flatMap(_.toIntOption).getOrElse(10),
       )
 
