@@ -4,7 +4,7 @@ import io.circe.parser.{decode, parse}
 import io.circe.syntax.*
 import munit.FunSuite
 
-import com.liteide.domain.{HistoryEntry, Op, Presence, Role}
+import com.liteide.domain.{Diagnostic, HistoryEntry, Op, Presence, Role, Severity}
 import com.liteide.domain.Ids.{DocumentId, SessionId, UserId}
 import com.liteide.protocol.Wire.{ClientMsg, ServerMsg}
 
@@ -34,6 +34,10 @@ final class WireSpec extends FunSuite:
   test("decode client resync"):
     assertEquals(decode[ClientMsg]("""{"type":"resync"}"""), Right(ClientMsg.Resync))
 
+  test("decode client setLanguage"):
+    val j = """{"type":"setLanguage","language":"scala"}"""
+    assertEquals(decode[ClientMsg](j), Right(ClientMsg.SetLanguage("scala")))
+
   test("decode rejects unknown client message type"):
     assert(decode[ClientMsg]("""{"type":"yolo"}""").isLeft)
 
@@ -45,7 +49,7 @@ final class WireSpec extends FunSuite:
     val uid = UserId(UUID.fromString("00000000-0000-0000-0000-000000000003"))
     val snap: ServerMsg =
       ServerMsg.Snapshot(docId, sid, uid, version = 7, text = "hi", peers = Nil, role = Role.Editor)
-    val j     = snap.asJson
+    val j = snap.asJson
     assertEquals(j.hcursor.downField("type").as[String], Right("snapshot"))
     assertEquals(j.hcursor.downField("version").as[Int], Right(7))
     assertEquals(j.hcursor.downField("text").as[String], Right("hi"))
@@ -68,6 +72,22 @@ final class WireSpec extends FunSuite:
     assertEquals(j.hcursor.downField("type").as[String], Right("cursor"))
     assertEquals(j.hcursor.downField("displayName").as[String], Right("alice"))
 
+  test("encode diagnostics has the agreed field names"):
+    val msg: ServerMsg = ServerMsg.Diagnostics(
+      version = 11,
+      diagnostics = List(Diagnostic(Severity.Warning, "unused", 2, 3, 2, 8))
+    )
+    val j = msg.asJson
+    assertEquals(j.hcursor.downField("type").as[String], Right("diagnostics"))
+    assertEquals(j.hcursor.downField("version").as[Int], Right(11))
+    val d = j.hcursor.downField("diagnostics").downN(0)
+    assertEquals(d.downField("severity").as[String], Right("warning"))
+    assertEquals(d.downField("message").as[String], Right("unused"))
+    assertEquals(d.downField("startLine").as[Int], Right(2))
+    assertEquals(d.downField("startCol").as[Int], Right(3))
+    assertEquals(d.downField("endLine").as[Int], Right(2))
+    assertEquals(d.downField("endCol").as[Int], Right(8))
+
   test("encode error message"):
     val msg: ServerMsg = ServerMsg.ErrorMsg("nope")
     val j = msg.asJson
@@ -77,7 +97,7 @@ final class WireSpec extends FunSuite:
   test("encode peer joined / peer left round-trip through parse"):
     val sid = SessionId(UUID.randomUUID())
     val uid = UserId(UUID.randomUUID())
-    val p   = Presence(sid, uid, "bob", cursor = 0, selectionEnd = 0, role = Role.Editor)
+    val p = Presence(sid, uid, "bob", cursor = 0, selectionEnd = 0, role = Role.Editor)
     val m1: ServerMsg = ServerMsg.PeerJoined(p)
     val m2: ServerMsg = ServerMsg.PeerLeft(sid)
     val j1 = m1.asJson.noSpaces
@@ -94,13 +114,13 @@ final class WireSpec extends FunSuite:
     )
 
   test("encode HistoryEntry has the agreed field names"):
-    val sid   = SessionId(UUID.fromString("00000000-0000-0000-0000-000000000002"))
+    val sid = SessionId(UUID.fromString("00000000-0000-0000-0000-000000000002"))
     val entry = HistoryEntry(Op.Insert(3, "hi"), sid, "alice", timestamp = 1_000_000L, version = 5)
-    val j     = entry.asJson
-    assertEquals(j.hcursor.downField("version").as[Int],           Right(5))
+    val j = entry.asJson
+    assertEquals(j.hcursor.downField("version").as[Int], Right(5))
     assertEquals(j.hcursor.downField("authorDisplayName").as[String], Right("alice"))
-    assertEquals(j.hcursor.downField("timestamp").as[Long],        Right(1_000_000L))
+    assertEquals(j.hcursor.downField("timestamp").as[Long], Right(1_000_000L))
     val op = j.hcursor.downField("op")
     assertEquals(op.downField("type").as[String], Right("insert"))
-    assertEquals(op.downField("pos").as[Int],     Right(3))
+    assertEquals(op.downField("pos").as[Int], Right(3))
     assertEquals(op.downField("text").as[String], Right("hi"))

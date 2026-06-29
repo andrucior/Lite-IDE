@@ -14,30 +14,33 @@ Two hard constraints set by the project owner:
 ## Repository layout
 
 ```
-backend/   — sbt project, Scala 3.3.7, currently empty scaffold (no src/ yet)
-frontend/frontend/   — Vite + React 19 app; Monaco editor is already a dependency (@monaco-editor/react)
+backend/   — sbt project, Scala 3.3.7 (http4s + fs2 + cats-effect + skunk/Postgres)
+frontend/  — Vite + React 19 app; Monaco editor (@monaco-editor/react)
 ```
 
-Note the doubled `frontend/frontend/` path — all frontend commands run from the inner directory.
+All frontend commands run from `frontend/`.
 
 ## Common commands
 
 Backend (run from `backend/`):
 - `sbt compile` — compile
 - `sbt run` — run main class
-- `sbt test` — run all tests (no test framework wired in yet; add MUnit or ScalaTest in `build.sbt` when first test lands)
+- `sbt test` — run all tests (MUnit)
 - `sbt "testOnly *FooSpec"` — single test class
 - `sbt ~compile` / `sbt ~test` — watch mode
 
-Frontend (run from `frontend/frontend/`):
+Requires Postgres. Start it with `docker compose up -d postgres` (host port 5434, matching the backend defaults) before `sbt run`.
+
+Frontend (run from `frontend/`):
 - `npm install` — install deps
 - `npm run dev` — Vite dev server
 - `npm run build` — production build
 - `npm run lint` — ESLint (flat config in `eslint.config.js`)
 - `npm run preview` — preview built output
+- `npm test` — Vitest
+
+Whole stack via Docker (db + backend + frontend): `docker compose up --build` (frontend on :5173, backend on :8090, Postgres on host :5434).
 
 ## Working notes for future changes
 
-- `backend/build.sbt` is currently a single-module skeleton with no dependencies. When adding the HTTP/WebSocket layer, declare the stack explicitly in `build.sbt` (http4s + fs2, or Pekko HTTP, etc.) rather than pulling ad-hoc libraries — the choice shapes the whole concurrency model.
-- The frontend already pulls in both `@monaco-editor/react` and `react-monaco-editor`. Pick one before building UI on top of it; they are not interchangeable.
 - README is in Polish; user-facing prose can be Polish or English, but keep code identifiers, commit messages, and Scala/JS comments in English.

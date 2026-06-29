@@ -24,11 +24,12 @@ import { sanitizeUserName, UUID_RE } from './api.js'
  *     so our own change-listener doesn't try to re-emit it) and advance `versionRef`.
  */
 export function useCollab(documentId, userName, editorRef, monacoRef) {
-  const [status,   setStatus]   = useState('connecting')
-  const [snapshot, setSnapshot] = useState(null)
-  const [peers,    setPeers]    = useState([])
-  const [role,     setRole]     = useState(null)
-  const [revoked,  setRevoked]  = useState(false) // owner removed our access mid-session
+  const [status,      setStatus]      = useState('connecting')
+  const [snapshot,    setSnapshot]    = useState(null)
+  const [peers,       setPeers]       = useState([])
+  const [role,        setRole]        = useState(null)
+  const [revoked,     setRevoked]     = useState(false) // owner removed our access mid-session
+  const [diagnostics, setDiagnostics] = useState([])
 
   const wsRef          = useRef(null)
   const sessionIdRef   = useRef(null)
@@ -144,6 +145,12 @@ export function useCollab(documentId, userName, editorRef, monacoRef) {
           }
           break
         }
+        case 'diagnostics': {
+          // Compiler diagnostics for the shared document. They're document-global, so we
+          // render whatever the server sends; an empty list clears the markers.
+          setDiagnostics(msg.diagnostics ?? [])
+          break
+        }
         case 'error': {
           // Non-fatal: log; a "no such document" handshake error will be followed by
           // the server closing the socket and our `close` listener flipping status.
@@ -190,16 +197,25 @@ export function useCollab(documentId, userName, editorRef, monacoRef) {
     wsRef.current.send(JSON.stringify({ type: 'cursor', pos, selectionEnd }))
   }
 
+  /** Tell the server which language this document is in. Drives server-side diagnostics:
+   *  'scala' enables them, anything else clears them. */
+  function setLanguage(language) {
+    if (wsRef.current?.readyState !== WebSocket.OPEN) return
+    wsRef.current.send(JSON.stringify({ type: 'setLanguage', language }))
+  }
+
   return {
     status,
     snapshot,
     peers,
     role,
     revoked,
+    diagnostics,
     sessionId: sessionIdRef.current,
     applyingRemote, // ref — Editor reads it to suppress its own change emit
     sendChanges,
     sendCursor,
+    setLanguage,
   }
 }
 

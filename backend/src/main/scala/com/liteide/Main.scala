@@ -8,7 +8,7 @@ import com.liteide.auth.JwtAuth
 import com.liteide.config.AppConfig
 import com.liteide.db.Db
 import com.liteide.http.HttpServer
-import com.liteide.service.{AuthService, DocumentService, RoomRegistry}
+import com.liteide.service.{AuthService, DocumentService, RoomRegistry, ScalaDiagnostics}
 
 /** Application entry point.
   *
@@ -30,7 +30,8 @@ object Main extends IOApp:
           docs    = DocumentService.postgres[IO](pool)
           auth    = AuthService.postgres[IO](pool)
           jwt     = JwtAuth(config.auth.jwtSecret, config.auth.ttl, Clock.systemUTC())
-          rooms  <- Resource.eval(RoomRegistry.make[IO])
+          diags  <- Resource.eval(ScalaDiagnostics.make[IO]())
+          rooms  <- Resource.eval(RoomRegistry.make[IO](diags))
           _      <- HttpServer.serve[IO](config.http, docs, rooms, auth, jwt)
         yield ()
       server.useForever.as(ExitCode.Success)

@@ -3,7 +3,7 @@ package com.liteide.protocol
 import io.circe.{Decoder, DecodingFailure, Encoder, Json}
 import io.circe.syntax.*
 
-import com.liteide.domain.{Op, Presence, Role}
+import com.liteide.domain.{Diagnostic, Op, Presence, Role, Severity}
 import com.liteide.domain.Ids.{DocumentId, SessionId, UserId}
 
 /** Wire protocol over the collaboration WebSocket.
@@ -23,6 +23,12 @@ object Wire:
     /** Update this session's cursor / selection. */
     case Cursor(pos: Int, selectionEnd: Int)
 
+    /** Announce the editor language for this document. When it is `"scala"` the server runs live
+      * diagnostics; any other value clears them. Language is document-global (the text is shared),
+      * so the last writer wins.
+      */
+    case SetLanguage(language: String)
+
     /** Request a fresh snapshot — e.g. after a perceived desync. */
     case Resync
 
@@ -39,6 +45,8 @@ object Wire:
             p <- c.downField("pos").as[Int]
             s <- c.downField("selectionEnd").as[Int]
           yield ClientMsg.Cursor(p, s)
+        case "setLanguage" =>
+          c.downField("language").as[String].map(ClientMsg.SetLanguage(_))
         case "resync" =>
           Right(ClientMsg.Resync)
         case other =>
@@ -51,17 +59,17 @@ object Wire:
   enum ServerMsg derives CanEqual:
     /** First message after a successful join: full document state + current peers.
       *
-      * `role` is the current user's role on this document so the frontend can
-      * immediately enforce read-only mode for observers and show the owner controls.
+      * `role` is the current user's role on this document so the frontend can immediately enforce
+      * read-only mode for observers and show the owner controls.
       */
     case Snapshot(
         documentId: DocumentId,
-        sessionId:  SessionId,
-        userId:     UserId,
-        version:    Int,
-        text:       String,
-        peers:      List[Presence],
-        role:       Role,
+        sessionId: SessionId,
+        userId: UserId,
+        version: Int,
+        text: String,
+        peers: List[Presence],
+        role: Role
     )
 
     /** Authoritative broadcast of one or more ops applied at `version`.
@@ -96,21 +104,43 @@ object Wire:
       */
     case RoleChanged(userId: UserId, role: Option[Role])
 
+    /** Compiler diagnostics for the document at `version`. Broadcast to every session in the room
+      * whenever the (debounced) type-check finishes; an empty list clears the markers.
+      */
+    case Diagnostics(version: Int, diagnostics: List[Diagnostic])
+
     /** Server-side error reporting (bad op, parse failure, …). */
     case ErrorMsg(reason: String)
 
   object ServerMsg:
+    private given Encoder[Severity] = Encoder.encodeString.contramap {
+      case Severity.Error => "error"
+      case Severity.Warning => "warning"
+      case Severity.Info => "info"
+    }
+
+    private given Encoder[Diagnostic] = Encoder.instance { d =>
+      Json.obj(
+        "severity" -> d.severity.asJson,
+        "message" -> d.message.asJson,
+        "startLine" -> d.startLine.asJson,
+        "startCol" -> d.startCol.asJson,
+        "endLine" -> d.endLine.asJson,
+        "endCol" -> d.endCol.asJson
+      )
+    }
+
     given Encoder[ServerMsg] = Encoder.instance {
       case ServerMsg.Snapshot(docId, sid, uid, v, t, peers, role) =>
         Json.obj(
           "type" -> "snapshot".asJson,
           "documentId" -> docId.asJson,
-          "sessionId"  -> sid.asJson,
-          "userId"     -> uid.asJson,
-          "version"    -> v.asJson,
-          "text"       -> t.asJson,
-          "peers"      -> peers.asJson,
-          "role"       -> role.asJson,
+          "sessionId" -> sid.asJson,
+          "userId" -> uid.asJson,
+          "version" -> v.asJson,
+          "text" -> t.asJson,
+          "peers" -> peers.asJson,
+          "role" -> role.asJson
         )
       case ServerMsg.Applied(v, ops, author) =>
         Json.obj(
@@ -137,6 +167,12 @@ object Wire:
           "type"   -> "roleChanged".asJson,
           "userId" -> uid.asJson,
           "role"   -> roleOpt.asJson, // null when access is revoked
+        )
+      case ServerMsg.Diagnostics(version, diagnostics) =>
+        Json.obj(
+          "type" -> "diagnostics".asJson,
+          "version" -> version.asJson,
+          "diagnostics" -> diagnostics.asJson
         )
       case ServerMsg.ErrorMsg(reason) =>
         Json.obj("type" -> "error".asJson, "reason" -> reason.asJson)
