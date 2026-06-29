@@ -86,7 +86,7 @@ object AuthRoutes:
       content  = token,
       httpOnly = true,
       secure   = false, // dev runs over plain http; flip to true behind TLS
-      sameSite = Some(SameSite.Lax),
+      sameSite = Some(SameSite.None),
       path     = Some("/"),
       maxAge   = Some(maxAgeSeconds),
     )
@@ -98,7 +98,7 @@ object AuthRoutes:
       content  = "",
       httpOnly = true,
       secure   = false,
-      sameSite = Some(SameSite.Lax),
+      sameSite = Some(SameSite.None),
       path     = Some("/"),
       maxAge   = Some(0L),
     )
